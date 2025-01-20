@@ -10,182 +10,176 @@ let config = process.env.config ? JSON.parse(process.env.config) : {};
 const app = electron.app;
 
 /*
- * Per default electron is started with --disable-gpu flag, if you want the gpu enabled,
- * you must set the env var ELECTRON_ENABLE_GPU=1 on startup.
- * See https://www.electronjs.org/docs/latest/tutorial/offscreen-rendering for more info.
+ * By default, Electron is started with the --disable-gpu flag.
+ * To enable GPU acceleration, set the environment variable ELECTRON_ENABLE_GPU=1 on startup.
+ * Refer to https://www.electronjs.org/docs/latest/tutorial/offscreen-rendering for more information.
  */
 if (process.env.ELECTRON_ENABLE_GPU !== "1") {
-	app.disableHardwareAcceleration();
+    app.disableHardwareAcceleration();
 }
 
 // Module to create native browser window.
 const BrowserWindow = electron.BrowserWindow;
 
 /*
- * Keep a global reference of the window object, if you don't, the window will
- * be closed automatically when the JavaScript object is garbage collected.
+ * Keep a global reference of the window object.
+ * If you don't, the window will be closed automatically when the JavaScript object is garbage collected.
  */
 let mainWindow;
 
 /**
- *
+ * Creates the main application window.
  */
-function createWindow () {
+function createWindow() {
+    /*
+     * Attempt to get the primary display's work area size.
+     * If unsuccessful, fallback to default dimensions.
+     */
+    let workArea = { x: 0, y: 0, width: 1200, height: 800 }; // Default work area
+    try {
+        const primaryDisplay = electron.screen.getPrimaryDisplay();
+        workArea = primaryDisplay.workArea;
+    } catch {
+        Log.warn("Could not retrieve display size. Using default dimensions.");
+    }
 
-	/*
-	 * see https://www.electronjs.org/docs/latest/api/screen
-	 * Create a window that fills the screen's available work area.
-	 */
-	let electronSize = (800, 600);
-	try {
-		electronSize = electron.screen.getPrimaryDisplay().workAreaSize;
-	} catch {
-		Log.warn("Could not get display size, using defaults ...");
-	}
+    // Define Electron window options for borderless fullscreen without covering taskbar
+    let electronOptionsDefaults = {
+        width: workArea.width,
+        height: workArea.height,
+        x: workArea.x,
+        y: workArea.y,
+        darkTheme: true,
+        show: false, // Initially hide to prevent flicker
+        frame: false,  // Disable window frame for borderless window
+        kiosk: false, // Disable kiosk mode
+        fullscreen: false, // Disable true fullscreen
+        resizable: false, // Prevent window resizing
+        hasShadow: false, // No shadow for a cleaner look
+        transparent: false, // No transparency
+        backgroundColor: "#000000",
+        webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: false,
+            zoomFactor: config.zoom || 1
+        }
+    };
 
-	let electronSwitchesDefaults = ["autoplay-policy", "no-user-gesture-required"];
-	app.commandLine.appendSwitch(...new Set(electronSwitchesDefaults, config.electronSwitches));
-	let electronOptionsDefaults = {
-		width: electronSize.width,
-		height: electronSize.height,
-		icon: "mm2.png",
-		x: 0,
-		y: 0,
-		darkTheme: true,
-		webPreferences: {
-			contextIsolation: true,
-			nodeIntegration: false,
-			zoomFactor: config.zoom
-		},
-		backgroundColor: "#000000"
-	};
+    // Merge user-specified electronOptions from config.js (if any)
+    const userElectronOptions = config.electronOptions || {};
+    const electronOptions = Object.assign({}, electronOptionsDefaults, userElectronOptions);
 
-	/*
-	 * DEPRECATED: "kioskmode" backwards compatibility, to be removed
-	 * settings these options directly instead provides cleaner interface
-	 */
-	if (config.kioskmode) {
-		electronOptionsDefaults.kiosk = true;
-	} else {
-		electronOptionsDefaults.show = false;
-		electronOptionsDefaults.frame = false;
-		electronOptionsDefaults.transparent = true;
-		electronOptionsDefaults.hasShadow = false;
-		electronOptionsDefaults.fullscreen = true;
-	}
+    /*
+     * Handle kiosk mode settings.
+     * If `kioskmode` is true, enforce kiosk settings.
+     * Otherwise, ensure standard window behavior.
+     */
+    if (config.kioskmode) {
+        electronOptions.kiosk = true;
+        electronOptions.frame = false;
+        electronOptions.transparent = true;
+        electronOptions.hasShadow = false;
+        electronOptions.fullscreen = true;
+    } else {
+        // Ensure standard window behavior
+        electronOptions.kiosk = false;
+        electronOptions.fullscreen = false;
+        electronOptions.frame = false; // Borderless
+        electronOptions.transparent = false;
+        electronOptions.hasShadow = false;
+        electronOptions.show = false; // Will show after setting size
+    }
 
-	const electronOptions = Object.assign({}, electronOptionsDefaults, config.electronOptions);
+    // Create the browser window.
+    mainWindow = new BrowserWindow(electronOptions);
 
-	if (process.env.JEST_WORKER_ID !== undefined && process.env.MOCK_DATE !== undefined) {
-		// if we are running with jest and we want to mock the current date
-		const fakeNow = new Date(process.env.MOCK_DATE).valueOf();
-		Date = class extends Date {
-			constructor (...args) {
-				if (args.length === 0) {
-					super(fakeNow);
-				} else {
-					super(...args);
-				}
-			}
-		};
-		const __DateNowOffset = fakeNow - Date.now();
-		const __DateNow = Date.now;
-		Date.now = () => __DateNow() + __DateNowOffset;
-	}
+    /*
+     * Load the MagicMirror URL.
+     * If `config.address` is not defined or is an empty string (listening on all interfaces),
+     * default to "localhost".
+     */
+    let prefix = (config.tls || config.useHttps) ? "https://" : "http://";
+    let address = (!config.address || config.address === "0.0.0.0") ? "localhost" : config.address;
+    const port = process.env.MM_PORT || config.port;
+    mainWindow.loadURL(`${prefix}${address}:${port}`);
 
-	// Create the browser window.
-	mainWindow = new BrowserWindow(electronOptions);
+    // Open DevTools if running in development mode
+    if (process.argv.includes("dev")) {
+        if (process.env.JEST_WORKER_ID !== undefined) {
+            // If running with Jest (testing), set DevTools accordingly
+            const devtools = new BrowserWindow(electronOptions);
+            mainWindow.webContents.setDevToolsWebContents(devtools.webContents);
+        }
+        mainWindow.webContents.openDevTools();
+    }
 
-	/*
-	 * and load the index.html of the app.
-	 * If config.address is not defined or is an empty string (listening on all interfaces), connect to localhost
-	 */
+    // Simulate a mouse move to prevent cursor issues on start
+    mainWindow.webContents.on("dom-ready", () => {
+        mainWindow.webContents.sendInputEvent({ type: "mouseMove", x: 0, y: 0 });
+    });
 
-	let prefix;
-	if ((config.tls !== null && config.tls) || config.useHttps) {
-		prefix = "https://";
-	} else {
-		prefix = "http://";
-	}
+    // Handle window closed event
+    mainWindow.on("closed", function () {
+        mainWindow = null;
+    });
 
-	let address = (config.address === void 0) | (config.address === "") | (config.address === "0.0.0.0") ? (config.address = "localhost") : config.address;
-	const port = process.env.MM_PORT || config.port;
-	mainWindow.loadURL(`${prefix}${address}:${port}`);
+    // Additional kiosk mode event handlers
+    if (config.kioskmode) {
+        mainWindow.on("blur", function () {
+            mainWindow.focus();
+        });
 
-	// Open the DevTools if run with "npm start dev"
-	if (process.argv.includes("dev")) {
-		if (process.env.JEST_WORKER_ID !== undefined) {
-			// if we are running with jest
-			const devtools = new BrowserWindow(electronOptions);
-			mainWindow.webContents.setDevToolsWebContents(devtools.webContents);
-		}
-		mainWindow.webContents.openDevTools();
-	}
+        mainWindow.on("leave-full-screen", function () {
+            mainWindow.setFullScreen(true);
+        });
 
-	// simulate mouse move to hide black cursor on start
-	mainWindow.webContents.on("dom-ready", (event) => {
-		mainWindow.webContents.sendInputEvent({ type: "mouseMove", x: 0, y: 0 });
-	});
+        mainWindow.on("resize", function () {
+            setTimeout(function () {
+                mainWindow.reload();
+            }, 1000);
+        });
+    }
 
-	// Set responders for window events.
-	mainWindow.on("closed", function () {
-		mainWindow = null;
-	});
+    // Remove security headers if configured in config.js
+    mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+        let curHeaders = details.responseHeaders;
+        if (config.ignoreXOriginHeader || false) {
+            curHeaders = Object.fromEntries(
+                Object.entries(curHeaders).filter(([key]) => !/x-frame-options/i.test(key))
+            );
+        }
+        if (config.ignoreContentSecurityPolicy || false) {
+            curHeaders = Object.fromEntries(
+                Object.entries(curHeaders).filter(([key]) => !/content-security-policy/i.test(key))
+            );
+        }
+        callback({ responseHeaders: curHeaders });
+    });
 
-	if (config.kioskmode) {
-		mainWindow.on("blur", function () {
-			mainWindow.focus();
-		});
-
-		mainWindow.on("leave-full-screen", function () {
-			mainWindow.setFullScreen(true);
-		});
-
-		mainWindow.on("resize", function () {
-			setTimeout(function () {
-				mainWindow.reload();
-			}, 1000);
-		});
-	}
-
-	//remove response headers that prevent sites of being embedded into iframes if configured
-	mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-		let curHeaders = details.responseHeaders;
-		if (config.ignoreXOriginHeader || false) {
-			curHeaders = Object.fromEntries(Object.entries(curHeaders).filter((header) => !(/x-frame-options/i).test(header[0])));
-		}
-
-		if (config.ignoreContentSecurityPolicy || false) {
-			curHeaders = Object.fromEntries(Object.entries(curHeaders).filter((header) => !(/content-security-policy/i).test(header[0])));
-		}
-
-		callback({ responseHeaders: curHeaders });
-	});
-
-	mainWindow.once("ready-to-show", () => {
-		mainWindow.show();
-	});
+    // Once the window is ready to show, set size and show it
+    mainWindow.once("ready-to-show", () => {
+        // No maximize, window is already set to workArea size
+        mainWindow.show(); // Show the window
+    });
 }
 
-// Quit when all windows are closed.
+// Quit the application when all windows are closed, except on macOS.
 app.on("window-all-closed", function () {
-	if (process.env.JEST_WORKER_ID !== undefined) {
-		// if we are running with jest
-		app.quit();
-	} else {
-		createWindow();
-	}
+    if (process.platform !== "darwin") {
+        app.quit();
+    } else {
+        createWindow();
+    }
 });
 
 app.on("activate", function () {
-
-	/*
-	 * On OS X it's common to re-create a window in the app when the
-	 * dock icon is clicked and there are no other windows open.
-	 */
-	if (mainWindow === null) {
-		createWindow();
-	}
+    /*
+     * On macOS, it's common to re-create a window in the app when the dock icon is clicked
+     * and there are no other windows open.
+     */
+    if (mainWindow === null) {
+        createWindow();
+    }
 });
 
 /*
@@ -196,28 +190,28 @@ app.on("activate", function () {
  * core.stop() is called by process.on("SIGINT"... in `app.js`
  */
 app.on("before-quit", async (event) => {
-	Log.log("Shutting down server...");
-	event.preventDefault();
-	setTimeout(() => {
-		process.exit(0);
-	}, 3000); // Force-quit after 3 seconds.
-	await core.stop();
-	process.exit(0);
+    Log.log("Shutting down server...");
+    event.preventDefault();
+    setTimeout(() => {
+        process.exit(0);
+    }, 3000); // Force-quit after 3 seconds.
+    await core.stop();
+    process.exit(0);
 });
 
 /**
  * Handle errors from self-signed certificates
  */
 app.on("certificate-error", (event, webContents, url, error, certificate, callback) => {
-	event.preventDefault();
-	callback(true);
+    event.preventDefault();
+    callback(true);
 });
 
 if (process.env.clientonly) {
-	app.whenReady().then(() => {
-		Log.log("Launching client viewer application.");
-		createWindow();
-	});
+    app.whenReady().then(() => {
+        Log.log("Launching client viewer application.");
+        createWindow();
+    });
 }
 
 /*
@@ -225,11 +219,11 @@ if (process.env.clientonly) {
  * This starts all node helpers and starts the webserver.
  */
 if (["localhost", "127.0.0.1", "::1", "::ffff:127.0.0.1", undefined].includes(config.address)) {
-	core.start().then((c) => {
-		config = c;
-		app.whenReady().then(() => {
-			Log.log("Launching application.");
-			createWindow();
-		});
-	});
+    core.start().then((c) => {
+        config = c;
+        app.whenReady().then(() => {
+            Log.log("Launching application.");
+            createWindow();
+        });
+    });
 }
