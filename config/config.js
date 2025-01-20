@@ -49,21 +49,11 @@ let config = {
 				weatherProvider: "openmeteo",
 				type: "current",
 				lat: 39.22938750398306,
-				lon: -121.04663791416893
+				lon: -121.04663791416893,
+				showWindDirection: false
 			}
 		},
-		{
-			module: "weather",
-			position: "top_right",
-			header: "Weather Forecast",
-			config: {
-				weatherProvider: "openmeteo",
-				type: "forecast",
-				lat: 39.22938750398306,
-				lon: -121.04663791416893
-			}
-		},
-		{
+			{
 		  module: "MMM-Cursor",
 		  config: {
 			timeout: 1500
