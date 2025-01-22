@@ -13,7 +13,6 @@ Module.register("MMM-Wallpaper", {
     crossfade: true,
     maxWidth: Number.MAX_SAFE_INTEGER,
     maxHeight: Number.MAX_SAFE_INTEGER,
-    nsfw: true,
     size: "cover",
     shuffle: true,
     addCacheBuster: true,
@@ -21,9 +20,6 @@ Module.register("MMM-Wallpaper", {
     fillRegion: true,
     width: "auto",
     height: "auto",
-    flickrApiKey: "",
-    flickrDataCacheTime: 24 * 60 * 60 * 1000,
-    flickrResultsPerPage: 500, // Flickr API is limited to 500 photos per page
     fadeEdges: false,
   },
 
@@ -36,6 +32,7 @@ Module.register("MMM-Wallpaper", {
 
     self.loadNextImageTimer = null;
     self.imageIndex = -1;
+    self.infoString = "";
 
     self.wrapper = document.createElement("div");
     self.wrapper.className = "MMM-Wallpaper";
@@ -86,7 +83,7 @@ Module.register("MMM-Wallpaper", {
 
     if (notification === "MODULE_DOM_CREATED" && self.config.userPresenceAction === "show") {
       self.hide();
-    } else if (notification === "LOAD_NEXT_WALLPAPER") {
+    } else if (notification === "LOAD_NEXT_WALLPAPERS") {
       self.loadNextImage();
     } else if (notification === "USER_PRESENCE") {
       if (self.config.userPresenceAction === "show") {
@@ -122,6 +119,9 @@ Module.register("MMM-Wallpaper", {
           self.loadNextImage();
         }
       }
+    } else if (notification === "NEW_INFO_STRING") {
+        self.infoString = payload;
+        self.updateDom(); // Update the DOM to display the new info string
     }
   },
 
@@ -180,11 +180,31 @@ Module.register("MMM-Wallpaper", {
     img.onload = self.onImageLoaded(imageData, img);
     img.src = self.getImageUrl(imageData);
 
+    // Log EXIF data after image is loaded
+    img.addEventListener('load', () => {
+      self.getExifData(img.src);
+    });
+
     return img;
   },
 
   getDom: function() {
-    return this.wrapper;
+    const self = this;
+
+    // Clear the previous info div before creating a new one
+    if (self.infoDiv) {
+      self.wrapper.removeChild(self.infoDiv);
+    }
+
+    // Create a div to hold the info string
+    self.infoDiv = document.createElement("div");
+    self.infoDiv.className = "info-container";
+    self.infoDiv.innerHTML = self.infoString; // Set the info string
+
+    // Append the info div to the wrapper
+    self.wrapper.appendChild(self.infoDiv);
+
+    return self.wrapper;
   },
 
   getViewport: function() {
@@ -269,5 +289,10 @@ Module.register("MMM-Wallpaper", {
       clearTimeout(self.loadNextImageTimer);
       self.loadNextImageTimer = setTimeout(() => self.loadNextImage(), self.config.slideInterval);
     }
+  },
+
+  getExifData: function(imageUrl) {
+    const self = this;
+    self.sendSocketNotification("GET_EXIF_DATA", imageUrl);
   },
 });

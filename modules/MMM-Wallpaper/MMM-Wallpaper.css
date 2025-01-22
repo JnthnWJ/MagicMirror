@@ -49,3 +49,24 @@
   height: 10%;
   background: linear-gradient(transparent, black);
 }
+
+/* New CSS for info string */
+.MMM-Wallpaper .info-container {
+    position: absolute;
+    bottom: 20px; /* Adjust as needed */
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(0, 0, 0, 0.5); /* Black with 50% opacity */
+    color: white;
+    padding: 10px 20px;
+    border-radius: 5px;
+    font-family: Roboto Condensed, sans-serif;
+    font-size: 35px;
+    font-weight: 500;
+    z-index: 1000; /* Ensure it's above other elements */
+    backdrop-filter: blur(5px); /* Apply Gaussian blur */
+    white-space: nowrap; /* Prevent text from wrapping */
+    overflow: hidden; /* Hide any overflowing content */
+    text-overflow: ellipsis; /* Add an ellipsis (...) to indicate truncated text */
+    max-width: 90%; /* Set a maximum width for the container */
+}

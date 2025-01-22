@@ -7,10 +7,10 @@ const express = require("express");
 const crypto = require("crypto");
 const http = require("http");
 const https = require("https");
-const Flickr = require("flickr-sdk");
-const NodeCache = require("node-cache");
+const ExifImage = require("exif").ExifImage;
+const { v4: uuidv4 } = require('uuid');
 if (typeof (fetch) === "undefined") {
-  fetch = require("fetch");
+  fetch = require("node-fetch");
 }
 
 function shuffle(a) {
@@ -25,11 +25,6 @@ function shuffle(a) {
   }
 
   return result;
-}
-
-function parseBool(val) {
-    var num = +val;
-    return !!(val && isNaN(num) ? String(val).toLowerCase().replace(!1,'') : num);
 }
 
 function pick(a) {
@@ -60,8 +55,8 @@ module.exports = NodeHelper.create({
     console.log(`Starting node helper for: ${self.name}`);
     self.cache = {};
     self.handlers = {};
-    self.firetv = null;
     self.chromecast = null;
+    self.images = []; // Initialize self.images
   },
 
   socketNotificationReceived: function(notification, payload) {
@@ -69,6 +64,13 @@ module.exports = NodeHelper.create({
 
     if (notification === "FETCH_WALLPAPERS") {
       self.fetchWallpapers(payload);
+    } else if (notification === "GET_EXIF_DATA") {
+        // Ensure self.images is populated before calling getExifData
+        if (self.images && self.images.length > 0) {
+          self.getExifData(payload);
+        } else {
+          console.log("Images array not populated yet. Skipping EXIF data retrieval.");
+        }
     }
   },
 
@@ -78,53 +80,17 @@ module.exports = NodeHelper.create({
     config.source = pick(config.source);
     const cacheEntry = self.getCacheEntry(config);
     if (config.maximumEntries <= cacheEntry.images.length && Date.now() < cacheEntry.expires) {
+      self.images = cacheEntry.images;
       self.sendResult(config);
       return;
     }
 
     var source = config.source.toLowerCase();
-    if (source === "firetv") {
-      if (self.firetv === null) {
-        self.firetv = JSON.parse(fs.readFileSync(`${__dirname}/firetv.json`));
-      }
-      self.cacheResult(config, shuffle(self.firetv.images));
-    } else if (source === "chromecast") {
+     if (source === "chromecast") {
       if (self.chromecast === null) {
         self.chromecast = JSON.parse(fs.readFileSync(`${__dirname}/chromecast.json`));
       }
       self.cacheResult(config, shuffle(self.chromecast));
-    } else if (source.startsWith("local:")) {
-      self.readdir(config);
-    } else if (source.startsWith("http://") || source.startsWith("https://")) {
-      let url = config.source;
-      if (config.addCacheBuster) {
-        url = `${url}${(url.indexOf("?") != -1) ? "&" : "?"}mmm-wallpaper-ts=${Date.now()}`;
-      }
-      self.cacheResult(config, [{
-        url: url,
-        caption: config.source,
-      }]);
-    } else if (source.startsWith("/r/")) {
-      self.request(config, {
-        url: `https://www.reddit.com${config.source}/hot.json`,
-        headers: {
-          "user-agent": "MagicMirror:MMM-Wallpaper:v1.0 (by /u/kolbyhack)"
-        },
-      });
-    } else if (source.startsWith("/user/")) {
-      self.request(config, {
-        url: `https://www.reddit.com${config.source}.json`,
-        headers: {
-          "user-agent": "MagicMirror:MMM-Wallpaper:v1.0 (by /u/kolbyhack)"
-        },
-      });
-    } else if (source === "pexels") {
-      self.request(config, {
-        url: `https://api.pexels.com/v1/search?query=${config.pexels_search}`,
-        headers: {
-          Authorization: config.pexels_key
-        },
-      });
     } else if (source.startsWith("icloud:")) {
       const album = config.source.substring(7).trim();
       const partition = b62decode((album[0] === "A") ? album[1] : album.substring(1, 3));
@@ -139,86 +105,11 @@ module.exports = NodeHelper.create({
         },
         body: '{"streamCtag":null}',
       });
-    } else if (source.startsWith("flickr-api:")) {
-      self.fetchFlickrApi(config);
-    } else if (source.startsWith("lightroom:")) {
-      self.request(config, {
-        url: `https://${config.source.substring(10).trim()}`,
-      });
-    } else if (source.startsWith("synology-moments:")) {
-      self.synologyMomentsState = "create_session";
-      self.request(config, {
-        url: config.source.substring(17).trim(),
-      });
-    } else if (source.startsWith("metmuseum:")) {
-      var args = config.source.substring(10).split(",");
-      self.request(config, {
-        url: `https://collectionapi.metmuseum.org/public/collection/v1/search?hasImages=true&departmentId=${args[0]}&isHighlight=${args[1]}&q=${args[2]}`,
-      });
-    } else if (source.startsWith("nasa:")) {
-      const searchTerm = config.source.split(":")[1];
-      if (!searchTerm || searchTerm.length === 0 || searchTerm === "") {
-        console.error("MMM-Wallpaper: Please specify search term for NASA API");
-        return;
-      }
-      self.request(config, {
-        url: `https://images-api.nasa.gov/search?q=${searchTerm}`
-      });
-    } else if ((source === "apod") || (source === "apodhd")) {
-      let startDate = new Date();
-      startDate.setDate(startDate.getDate() - config.maximumEntries);
-      startDate = `${startDate.getFullYear()}-${z(startDate.getMonth() + 1)}-${z(startDate.getDate())}`;
-      self.request(config, {
-        url: `https://api.nasa.gov/planetary/apod?api_key=${config.nasaApiKey}&start_date=${startDate}`,
-      });
     } else {
       self.request(config, {
         url: `https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=${config.maximumEntries}`,
       });
     }
-  },
-
-  readdir: function(config) {
-    const self = this;
-    const result = self.getCacheEntry(config);
-    const sourcePath = config.source.substring(6).trim();
-    const urlPath = `/${self.name}/images/${result.key}/`;
-    const fileMatcher = /\.(?:a?png|avif|gif|p?jpe?g|jfif|pjp|svg|webp|bmp)$/;
-
-    if (!(result.key in self.handlers)) {
-      var handler = express.static(sourcePath);
-
-      self.handlers[result.key] = handler;
-      self.expressApp.use(urlPath, handler);
-    }
-
-    async function getFiles(dir, prefix) {
-      const dirents = await fs.promises.readdir(dir, { withFileTypes: true });
-      let result = [];
-
-      for (const dirent of dirents) {
-        const entpath = path.resolve(dir, dirent.name);
-        if (dirent.isDirectory() && config.recurseLocalDirectories) {
-          result = result.concat(await getFiles(entpath, `${prefix}${dirent.name}/`));
-        } else if (dirent.isFile() && dirent.name.toLowerCase().match(fileMatcher) != null) {
-          result.push({
-            url: `${urlPath}${prefix.substring(1)}${dirent.name}`,
-            caption: entpath,
-          });
-        }
-      }
-
-      return result;
-    };
-
-    getFiles(sourcePath, "/")
-      .then(images => {
-        if (config.shuffle) {
-          images = shuffle(images);
-        }
-
-        self.cacheResult(config, images);
-      });
   },
 
   request: function(config, params) {
@@ -253,6 +144,7 @@ module.exports = NodeHelper.create({
   sendResult: function(config) {
     var self = this;
     var result = self.getCacheEntry(config);
+    self.images = result.images;
 
     self.sendSocketNotification("WALLPAPERS", {
       "source": config.source,
@@ -266,22 +158,8 @@ module.exports = NodeHelper.create({
     var images;
 
     var source = config.source.toLowerCase();
-    if (source.startsWith("/r/") || source.startsWith("/user/")) {
-      images = self.processRedditData(config, JSON.parse(body));
-    } else if (source.startsWith("icloud:")) {
+    if (source.startsWith("icloud:")) {
       images = self.processiCloudData(response, JSON.parse(body), config);
-    } else if (source === "pexels") {
-      images = self.processPexelsData(config, JSON.parse(body));
-    } else if (source.startsWith("lightroom:")) {
-      images = self.processLightroomData(config, body);
-    } else if (source.startsWith("synology-moments:")) {
-      images = self.processSynologyMomentsData(response, body, config);
-    } else if (source.startsWith("metmuseum:")) {
-      images = self.processMetMuseumData(config, JSON.parse(body));
-    } else if (source.startsWith("nasa:")) {
-      images = self.processNasaData(config, JSON.parse(body));
-    } else if ((source === "apod") || (source === "apodhd")) {
-      images = self.processApodData(config, JSON.parse(body));
     } else {
       images = self.processBingData(config, JSON.parse(body));
     }
@@ -291,21 +169,6 @@ module.exports = NodeHelper.create({
     }
 
     self.cacheResult(config, images);
-  },
-
-  processPexelsData: function (config, data) {
-    var self = this;
-    var orientation = (config.orientation === "vertical") ? "portrait" : "landscape";
-
-    var images = [];
-    for (var image of data.photos) {
-      images.push({
-        url: image.src[orientation],
-        caption: `Photographer: ${image.photographer}`,
-      });
-    }
-
-    return images;
   },
 
   processBingData: function(config, data) {
@@ -325,41 +188,11 @@ module.exports = NodeHelper.create({
     return images;
   },
 
-  processRedditData: function(config, data) {
-    var self = this;
-
-    var images = [];
-    for (var post of data.data.children) {
-      if (post.kind === "t3"
-          && !post.data.pinned
-          && !post.data.stickied
-          && post.data.post_hint === "image"
-          && (config.nsfw || !post.data.over_18)) {
-        var variants = post.data.preview.images[0].resolutions.slice(0);
-
-        variants.push(post.data.preview.images[0].source);
-        variants.map((v) => { v.url = v.url.split("&amp;").join("&"); return v; });
-        variants.sort((a, b) => { return a.width * a.height - b.width * b.height; });
-
-        images.push({
-          url: post.data.url.replace("&amp;", "&"),
-          caption: post.data.title,
-          variants: variants,
-        });
-
-        if (images.length === config.maximumEntries) {
-          break;
-        }
-      }
-    }
-
-    return images;
-  },
-
   processiCloudData: function(response, body, config) {
     var self = this;
     var album = config.source.substring(7).trim();
     var images = [];
+    var contributorNames = {}; // Create an object to hold contributor names
 
     if (self.iCloudState === "webstream") {
       if (response.status === 330) {
@@ -397,6 +230,8 @@ module.exports = NodeHelper.create({
               break;
             }
           }
+          // Store contributor name for each photo
+          contributorNames[photo.photoGuid] = photo.contributorFullName;
         }
       }
 
@@ -405,6 +240,7 @@ module.exports = NodeHelper.create({
           url: null,
           caption: p.caption,
           variants: [],
+          contributorFullName: contributorNames[p.photoGuid] // Add contributor name to result
         };
 
         for (var i in p.derivatives) {
@@ -420,402 +256,22 @@ module.exports = NodeHelper.create({
         }
 
         result.variants.sort((a, b) => { return a.width * a.height - b.width * b.height; });
-        result.url = result.variants[result.variants.length - 1].url;
+
+          // Make sure the variants array has at least one element
+          if (result.variants.length > 0) {
+              // Get the last element's URL
+              result.url = result.variants[result.variants.length - 1].url;
+          } else {
+              // Handle the case where the variants array is empty
+              console.warn("Variants array is empty for photo:", p);
+              result.url = null; // Or some default URL
+          }
 
         return result;
       });
     }
 
     return images;
-  },
-
-  processLightroomData: function(config, body) {
-    var self = this;
-    var data = body.match(/data-srcset="[^"]+/g);
-
-    if (config.shuffle) {
-      data = shuffle(data);
-    }
-
-    var images = [];
-    for (var srcset of data) {
-      var variants = srcset.substring(13).split(",");
-      var result = {
-        url: null,
-        variants: [],
-      };
-
-      for (var v of variants) {
-        var d = v.split(" ");
-        var width = Number.parseInt(d[1]);
-
-        if (width > 0) {
-          result.variants.push({
-            url: d[0],
-            width: width,
-            height: 1,
-          });
-        }
-      }
-
-      if (result.variants.length === 0) {
-        continue;
-      }
-
-      result.variants.sort((a, b) => { return a.width * a.height - b.width * b.height; });
-      result.url = result.variants[result.variants.length - 1].url;
-      images.push(result);
-
-      if (images.length === config.maximumEntries) {
-        break;
-      }
-    }
-
-    return images;
-  },
-
-  processSynologyMomentsData: function(response, body, config) {
-    var self = this;
-    var url = new URL(config.source.substring(17).trim());
-    var last_slash = url.pathname.lastIndexOf("/");
-    var api_path = `${url.pathname.substring(0, last_slash)}/webapi/entry.cgi`;
-    var api_url = `${url.protocol}//${url.host}${api_path}`;
-    var album = url.pathname.substring(last_slash + 1);
-    var images = [];
-    var cache_entry = self.getCacheEntry(config);
-
-    if (!("image_map" in cache_entry)) {
-      cache_entry.image_map = {};
-      cache_entry.session_cookie = null;
-    }
-
-    if (!(cache_entry.key in self.handlers)) {
-      // https://stackoverflow.com/a/10435819
-      var handler = (oreq, ores, next) => {
-        const options = {
-          host: url.host,
-          port: url.port,
-          protocol: url.protocol,
-          path: cache_entry.image_map[oreq.url],
-          method: "GET",
-          headers: {
-            "cache-control": "none",
-            "cookie": cache_entry.session_cookie,
-          },
-        };
-
-        const module = (url.protocol === "http:") ? http : https;
-        const preq = module.request(options, (pres) => {
-          ores.writeHead(pres.statusCode, pres.headers);
-          pres.on("data", (chunk) => { ores.write(chunk); });
-          pres.on("close", () => { ores.end(); });
-          pres.on("end", () => { ores.end(); });
-        }).on("error", e => {
-          try {
-            ores.writeHead(500);
-            ores.write(e.message);
-          } catch (e) {
-          }
-          ores.end();
-        });
-
-        preq.end();
-      };
-
-      self.handlers[cache_entry.key] = handler;
-      self.expressApp.use(`/${self.name}/images/${cache_entry.key}/`, handler);
-    }
-
-    if (response.status !== 200) {
-      console.error(`ERROR: ${response.status} -- ${body}`);
-    } else if (self.synologyMomentsState === "create_session") {
-      if ("set-cookie" in response.headers) {
-        cache_entry.session_cookie = response.headers["set-cookie"][0].split(";")[0];
-        self.synologyMomentsState = "browse_item";
-        self.request(config, {
-          method: "POST",
-          url: api_url,
-          body: `additional=["thumbnail","resolution","orientation","video_convert","video_meta"]&offset=0&limit=${config.maximumEntries}&passphrase="${album}"&api="SYNO.Photo.Browse.Item"&method="list"&version=3`,
-          headers: {
-            "cookie": cache_entry.session_cookie,
-            "x-syno-sharing": album,
-          },
-        });
-      }
-    } else {
-      body = JSON.parse(body);
-      images = body.data.list.map((i) => {
-        cache_entry.image_map[`/${i.id}`] = `${api_path}?id=${i.id}&cache_key=${i.additional.thumbnail.cache_key}&type="unit"&size="xl"&api="SYNO.Photo.Thumbnail"&method="get"&version=1&_sharing_id="${album}"&passphrase="${album}"`;
-        return {
-          url: `/${self.name}/images/${cache_entry.key}/${i.id}`,
-        };
-      });
-    }
-
-    return images;
-  },
-
-  processMetMuseumData: function(config, data) {
-    var self = this;
-    var images = [];
-
-    if (data.objectIDs === null) {
-      return [];
-    }
-
-    if (config.shuffle) {
-      data.objectIDs = shuffle(data.objectIDs);
-    }
-
-    var objectIDs = data.objectIDs.slice(0, Math.min(60, config.maximumEntries));
-    var pendingRequests = objectIDs.length;
-
-    for (var id of objectIDs) {
-      var url = `https://collectionapi.metmuseum.org/public/collection/v1/objects/${id}`;
-
-      fetch(url)
-        .then(response => response.json())
-        .then(obj => {
-          if (obj.isPublicDomain) {
-            images.push({
-              url: obj.primaryImageSmall,
-              caption: `${obj.title} - ${obj.artistDisplayName}`,
-            });
-          }
-        })
-        .finally(() => {
-          if (--pendingRequests === 0) {
-            self.cacheResult(config, images);
-          }
-        });
-    }
-
-    return [];
-  },
-
-  /* NASA APIs documented under https://api.nasa.gov/.
-    This accesses the NASA Image and Video Library. 
-    Currently, it only loads the thumbnails, which in most cases have good enough quality.
-    For NASA API usage without an API key, there are hourly limits of about 1,000 requests. 
-    */
-  processNasaData: function (config, data) {
-    if (!data.collection.items) {
-      return [];
-    }
-    // filter for images, since the API also returns videos
-    const filteredImages = data.collection.items.filter((item) => item.data[0]['media_type'] === 'image');
-    let images = [];
-    for (const image of filteredImages) {
-      if (image.links && image.links.length > 0) {
-        images.push({
-          url: image.links[0].href,
-          caption: image.data[0].description_508 ? image.data[0].description_508 : image.data[0].title
-        });
-      }
-    }
-
-    return images;
-  },
-
-  processApodData: function (config, data) {
-    const images = [];
-    const key = (config.source === "apod") ? "url" : "hdurl";
-
-    for (const image of data) {
-      if ((image.media_type === "image") && (key in image)) {
-        images.unshift({
-          url: image[key],
-          caption: image.title,
-        });
-      }
-    }
-
-    return images;
-  },
-
-  fetchFlickrApi: function(config) {
-    const self = this;
-    const sources = config.source.substring(11).split(';');
-
-    if (!self.flickr) {
-      self.flickr = new Flickr(config.flickrApiKey);
-      self.flickr.favorites.getPhotos = self.flickr.favorites.getList;
-      self.flickrFeeds = new Flickr.Feeds();
-    }
-    if (!self.flickrDataCache) {
-      self.flickrDataCache = new NodeCache();
-    }
-
-    const promises = [];
-    for (const source of sources) {
-      promises.push(new Promise((resolve, reject) => self.fetchOneFlickrSource(config, source, resolve)));
-    }
-    Promise.all(promises).then((results) => {
-      let images = [];
-      for (const result of results) {
-        images.push(...result);
-      }
-      // Each source fetches up to maximumImages images (in case some have fewer).
-      // Apply shuffle now, as the consumer will truncate.
-      if (config.shuffle) {
-        images = shuffle(images);
-      }
-      return images; // processFlickrPhotos truncates the array to maximumEntries
-    }).then((images) => {
-      return new Promise((resolve, reject) => self.processFlickrPhotos(config, images, resolve));
-    }).then((images) => self.cacheResult(config, images));
-  },
-
-  fetchOneFlickrSource: function(config, source, resolve) {
-    const self = this;
-    const args = source.split('/').filter(s => s.length > 0);
-    if (args[0] === "publicPhotos") {
-      self.flickrFeeds.publicPhotos({
-        per_page: config.flickrResultsPerPage,
-      }).then(res => {
-        self.processFlickrFeedPhotos(config, res.body.items, resolve);
-      });
-    } else if (args[0] === "tags" && args.length > 1) {
-      self.flickrFeeds.publicPhotos({
-        tags: args[1],
-        tagmode: (args.length > 2) ? args[2] : "all",
-        per_page: config.flickrResultsPerPage,
-      }).then(res => {
-        self.processFlickrFeedPhotos(config, res.body.items, resolve);
-      });
-    } else if (args[0] === "photos" && args.length > 1) {
-      if (args.length === 4 && args[2] === "galleries") {
-        self.fetchFlickrApiPhotos(config, "galleries", "photos", {
-          gallery_id: args[3],
-          extras: "owner_name",
-        }, resolve);
-      } else {
-        self.flickr.people.findByUsername({
-          username: args[1],
-        }).then(res => {
-          if (args.length === 2) {
-            self.fetchFlickrApiPhotos(config, "people", "photos", {
-              user_id: res.body.user.id,
-              extras: "owner_name",
-            }, resolve);
-          } else if (args.length === 3 && args[2] === "favorites") {
-            self.fetchFlickrApiPhotos(config, "favorites", "photos", {
-              user_id: res.body.user.id,
-              extras: "owner_name",
-            }, resolve);
-          } else if (args.length === 4) {
-            if (args[2] === "albums") {
-              self.fetchFlickrApiPhotos(config, "photosets", "photoset", {
-                user_id: res.body.user.id,
-                photoset_id: args[3],
-                extras: "owner_name",
-              }, resolve);
-            }
-          }
-        });
-      }
-    } else if (args[0] === "groups" && args.length > 1) {
-      self.flickr.urls.lookupGroup({
-        url: `https://www.flickr.com/groups/${args[1]}/`,
-      }).then(res => {
-        self.fetchFlickrApiPhotos(config, "groups.pools", "photos", {
-          group_id: res.body.group.id,
-          extras: "owner_name",
-        }, resolve);
-      });
-    } else {
-      console.warn(`Unrecognised Flickr source ${source}, ignoring`);
-      resolve([]);
-    }
-  },
-
-  fetchFlickrApiPhotos: function(config, sourceType, resultType, args, resolve) {
-    const self = this;
-    let source = self.flickr;
-
-    for (let s of sourceType.split(".")) {
-      source = source[s];
-    }
-
-    args.per_page = args.per_page || config.flickrResultsPerPage;
-    source.getPhotos(args).then(res => {
-      resolve(res.body[resultType].photo.map(p => {
-        return {
-          id: p.id,
-          title: p.title,
-          owner: p.ownername,
-        }
-      }));
-    });
-  },
-
-  processFlickrFeedPhotos: function(config, items, resolve) {
-    const self = this;
-    resolve(items.map(i => {
-      return {
-        id: i.link.split("/").filter(s => s.length > 0).slice(-1)[0],
-        title: i.title,
-        owner: i.author.split('"').filter(s => s.length > 0).slice(-2)[0],
-      }
-    }));
-  },
-
-  processFlickrPhotos: function(config, photos, resolve) {
-    const self = this;
-    const images = [];
-
-    photos = photos.slice(0, config.maximumEntries);
-    let pendingRequests = photos.length;
-
-    for (let p of photos) {
-      const cacheResult = self.flickrDataCache.get(p.id);
-      if (cacheResult !== undefined) {
-        images.push(cacheResult);
-        if (--pendingRequests === 0) {
-          resolve(images);
-        }
-        continue;
-      }
-
-      self.flickr.photos.getSizes({
-        photo_id: p.id,
-      }).then(res => {
-        const result = {
-          url: null,
-          caption: `${p.title} (by ${p.owner})`,
-          variants: [],
-        };
-
-        for (let s of res.body.sizes.size) {
-          if (s.media === "photo") {
-            result.variants.push({
-              url: s.source,
-              width: +s.width,
-              height: +s.height,
-            });
-          }
-        }
-
-        if (result.variants.length > 0) {
-          let selection = result.variants.reduce((prev, variant) => {
-            return ((variant.width <= config.maxWidth) && (variant.height <= config.maxHeight)) ? variant : prev;
-          }, undefined);
-          if (selection !== undefined) {
-            result.url = selection.url;
-            self.flickrDataCache.set(p.id, result, config.flickrDataCacheTime);
-            images.push(result);
-          }
-        }
-
-        if (--pendingRequests === 0) {
-          resolve(images);
-        }
-      }).catch(err => {
-        if (--pendingRequests === 0) {
-          resolve(images);
-        }
-      });
-    }
   },
 
   getCacheEntry: function(config) {
@@ -831,5 +287,251 @@ module.exports = NodeHelper.create({
     }
 
     return self.cache[key];
+  },
+
+  getExifData: function (imageUrl) {
+    const self = this;
+    const tempPath = path.join(__dirname, 'temp');
+    if (!fs.existsSync(tempPath)) {
+        fs.mkdirSync(tempPath);
+    }
+    const tempFileName = `tempImage-${uuidv4()}.jpg`;
+    const tempFilePath = path.join(tempPath, tempFileName);
+
+    self.downloadImage(imageUrl, tempFilePath)
+      .then(() => {
+          new ExifImage({ image: tempFilePath }, function (error, exifData) {
+              if (error) {
+                  console.log('Error: ' + error.message);
+                  self.processExifData({}, imageUrl);
+              } else {
+                  self.processExifData(exifData, imageUrl);
+              }
+              // Cleanup: Delete the temporary image file
+              fs.unlink(tempFilePath, (err) => {
+                  if (err) console.error('Error deleting temporary file:', err);
+              });
+          });
+      })
+      .catch(error => {
+          console.error('Error downloading image:', error);
+          self.processExifData({}, imageUrl);
+          // Cleanup: Ensure temp file is deleted even on download failure
+          if (fs.existsSync(tempFilePath)) {
+              fs.unlink(tempFilePath, (err) => {
+                  if (err) console.error('Error deleting temporary file:', err);
+              });
+          }
+      });
+  },
+
+  processExifData: function(data, imageUrl) {
+    const self = this;
+
+    // Safely get the date
+    let createdDate = data.exif && (data.exif.CreateDate || data.image.ModifyDate);
+    let createdDateFormatted = "Date not found";
+
+    if (createdDate) {
+      // Handle different date formats
+      let dateParts = createdDate.split(/[: ]/); // Split by colon or space
+
+      if (dateParts.length >= 3) {
+        // Ensure all parts are numbers
+        let year = parseInt(dateParts[0]);
+        let month = parseInt(dateParts[1]) - 1; // Month is 0-indexed
+        let day = parseInt(dateParts[2]);
+        let hours = parseInt(dateParts[3]) || 0;
+        let minutes = parseInt(dateParts[4]) || 0;
+        let seconds = parseInt(dateParts[5]) || 0;
+
+        // Check if we have valid numbers
+        if (!isNaN(year) && !isNaN(month) && !isNaN(day)) {
+          let dateObj = new Date(year, month, day, hours, minutes, seconds);
+
+          // Check if the date object is valid
+          if (!isNaN(dateObj.getTime())) {
+            createdDateFormatted = dateObj.toLocaleDateString('en-US', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            });
+          }
+        }
+      }
+    }
+
+    // Safely get GPS data, check if gps object and properties exist before accessing
+    let latitude = "Latitude not found";
+    let longitude = "Longitude not found";
+    if (data.gps && data.gps.GPSLatitude && data.gps.GPSLatitudeRef && data.gps.GPSLongitude && data.gps.GPSLongitudeRef) {
+        const lat = data.gps.GPSLatitude[0] + data.gps.GPSLatitude[1] / 60 + data.gps.GPSLatitude[2] / 3600;
+        const lon = data.gps.GPSLongitude[0] + data.gps.GPSLongitude[1] / 60 + data.gps.GPSLongitude[2] / 3600;
+        latitude = (data.gps.GPSLatitudeRef === "S" ? -lat : lat).toFixed(6);
+        longitude = (data.gps.GPSLongitudeRef === "W" ? -lon : lon).toFixed(6);
+    }
+
+    // Log date and GPS information
+    console.log("Created Date:", createdDateFormatted);
+    console.log("Latitude:", latitude);
+    console.log("Longitude:", longitude);
+
+    // Find the corresponding image data from self.images to get the contributor name
+    const imageData = (self.images) ? self.images.find(image => image.url === imageUrl) : null;
+    const contributorFullName = imageData && imageData.contributorFullName ? imageData.contributorFullName : "Contributor not found";
+
+    // Only proceed with reverse geocoding if we have valid lat and lon
+    if (latitude !== "Latitude not found" && longitude !== "Longitude not found") {
+        self.reverseGeocode(latitude, longitude, contributorFullName, createdDateFormatted);
+    } else {
+        // If no location data, construct the info string with available data
+        const infoString = self.createInfoString(createdDateFormatted, null, contributorFullName);
+        self.sendSocketNotification("NEW_INFO_STRING", infoString);
+    }
+},
+
+  downloadImage: function (url, filePath) {
+    return new Promise((resolve, reject) => {
+        const file = fs.createWriteStream(filePath);
+        const protocol = url.startsWith('https') ? https : http;
+        protocol.get(url, function (response) {
+            if (response.statusCode >= 200 && response.statusCode < 300) {
+                response.pipe(file);
+                file.on('finish', function () {
+                    file.close(resolve);
+                });
+            } else {
+                file.close();
+                fs.unlink(filePath, () => { }); // Delete the empty or incomplete file
+                reject(new Error(`Failed to download image. Status code: ${response.statusCode}`));
+            }
+        }).on('error', function (err) {
+            file.close();
+            if (fs.existsSync(filePath)) {
+                fs.unlink(filePath, () => { }); // Delete the file on error
+            }
+            reject(err);
+        });
+    });
+  },
+
+  reverseGeocode: function(latitude, longitude, contributorFullName, createdDateFormatted) {
+    const self = this;
+    const startZoom = 12; // Start at town/borough level
+
+    const attemptReverseGeocode = (zoomLevel) => {
+        const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=${zoomLevel}&addressdetails=1&accept-language=en`;
+
+        fetch(url)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                let locationName = null;
+                let countryCode = null;
+
+                if (data.address) {
+                    locationName = data.address.city || data.address.town || data.address.village || data.address.borough;
+                    countryCode = data.address.country_code;
+
+                    if (countryCode === 'us') {
+                        // Get the state for US locations
+                        if (data.address.state) {
+                            locationName = (locationName ? locationName + ", " : "") + data.address.state;
+                        }
+                        // Special handling for US territories
+                        self.getTerritory(latitude, longitude).then(territory => {
+                            if (territory && !locationName.includes(territory)) {
+                                locationName += ", " + territory;
+                            }
+
+                            if (locationName) {
+                                // Construct the info string
+                                const infoString = self.createInfoString(createdDateFormatted, locationName, contributorFullName);
+                                self.sendSocketNotification("NEW_INFO_STRING", infoString);
+
+                            } else if (zoomLevel > 3) {
+                                console.log(`No location found at zoom level ${zoomLevel}, retrying with zoom level ${zoomLevel - 1}`);
+                                attemptReverseGeocode(zoomLevel - 1);
+                            } else {
+                                console.log("Location Name: Location not found");
+                            }
+                        });
+                    } else {
+                        // For non-US locations, append county and country if available
+                        if (data.address.county) {
+                            locationName = (locationName ? locationName + ", " : "") + data.address.county;
+                        }
+                        if (data.address.country) {
+                            locationName = (locationName ? locationName + ", " : "") + data.address.country;
+                        }
+
+                        if (locationName) {
+                          // Construct the info string
+                          const infoString = self.createInfoString(createdDateFormatted, locationName, contributorFullName);
+                          self.sendSocketNotification("NEW_INFO_STRING", infoString);
+                        } else if (zoomLevel > 3) {
+                            console.log(`No location found at zoom level ${zoomLevel}, retrying with zoom level ${zoomLevel - 1}`);
+                            attemptReverseGeocode(zoomLevel - 1);
+                        } else {
+                            console.log("Location Name: Location not found");
+                        }
+                    }
+                } else if (zoomLevel > 3) {
+                    console.log(`No location found at zoom level ${zoomLevel}, retrying with zoom level ${zoomLevel - 1}`);
+                    attemptReverseGeocode(zoomLevel - 1);
+                } else {
+                    console.log("Location Name: Location not found");
+                }
+            })
+            .catch(error => {
+                console.error('Error during reverse geocoding:', error);
+            });
+    };
+
+    // Start the reverse geocoding process at the initial zoom level
+    attemptReverseGeocode(startZoom);
+},
+
+// Helper function to construct the info string
+createInfoString: function(createdDate, locationName, contributorFullName) {
+    let infoString = "";
+    if (createdDate !== "Date not found") {
+        infoString += `${createdDate}`;
+    }
+    if (locationName) {
+        infoString += (infoString ? " | " : "") + `${locationName}`;
+    }
+    if (contributorFullName !== "Contributor not found") {
+        infoString += (infoString ? " | " : "") + `Contributed by ${contributorFullName}`;
+    }
+    return infoString;
+},
+
+  // Function to specifically get the territory name for US locations
+  getTerritory: function (latitude, longitude) {
+    const self = this;
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=5&addressdetails=1&accept-language=en`;
+
+    return fetch(url)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.address && data.address.state) {
+                return data.address.state;
+            }
+            return null;
+        })
+        .catch(error => {
+            console.error('Error during territory lookup:', error);
+            return null;
+        });
   },
 });
