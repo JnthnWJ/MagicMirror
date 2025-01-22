@@ -56,7 +56,7 @@ module.exports = NodeHelper.create({
     self.cache = {};
     self.handlers = {};
     self.chromecast = null;
-    self.images = [];
+    self.images = []; // Initialize self.images
   },
 
   socketNotificationReceived: function(notification, payload) {
@@ -65,12 +65,12 @@ module.exports = NodeHelper.create({
     if (notification === "FETCH_WALLPAPERS") {
       self.fetchWallpapers(payload);
     } else if (notification === "GET_EXIF_DATA") {
-      // Ensure self.images is populated before calling getExifData
-      if (self.images && self.images.length > 0) {
-        self.getExifData(payload);
-      } else {
-        console.log("Images array not populated yet. Skipping EXIF data retrieval.");
-      }
+        // Ensure self.images is populated before calling getExifData
+        if (self.images && self.images.length > 0) {
+          self.getExifData(payload);
+        } else {
+          console.log("Images array not populated yet. Skipping EXIF data retrieval.");
+        }
     }
   },
 
@@ -329,7 +329,37 @@ module.exports = NodeHelper.create({
     const self = this;
 
     // Safely get the date
-    const createdDate = data.exif && (data.exif.CreateDate || data.image.ModifyDate) || "Date not found";
+    let createdDate = data.exif && (data.exif.CreateDate || data.image.ModifyDate);
+    let createdDateFormatted = "Date not found";
+
+    if (createdDate) {
+      // Handle different date formats
+      let dateParts = createdDate.split(/[: ]/); // Split by colon or space
+
+      if (dateParts.length >= 3) {
+        // Ensure all parts are numbers
+        let year = parseInt(dateParts[0]);
+        let month = parseInt(dateParts[1]) - 1; // Month is 0-indexed
+        let day = parseInt(dateParts[2]);
+        let hours = parseInt(dateParts[3]) || 0;
+        let minutes = parseInt(dateParts[4]) || 0;
+        let seconds = parseInt(dateParts[5]) || 0;
+
+        // Check if we have valid numbers
+        if (!isNaN(year) && !isNaN(month) && !isNaN(day)) {
+          let dateObj = new Date(year, month, day, hours, minutes, seconds);
+
+          // Check if the date object is valid
+          if (!isNaN(dateObj.getTime())) {
+            createdDateFormatted = dateObj.toLocaleDateString('en-US', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            });
+          }
+        }
+      }
+    }
 
     // Safely get GPS data, check if gps object and properties exist before accessing
     let latitude = "Latitude not found";
@@ -341,19 +371,22 @@ module.exports = NodeHelper.create({
         longitude = (data.gps.GPSLongitudeRef === "W" ? -lon : lon).toFixed(6);
     }
 
-    // Find the corresponding image data from self.images to get the contributor name
-    const imageData = self.images.find(image => image.url === imageUrl);
-    const contributorFullName = imageData && imageData.contributorFullName ? imageData.contributorFullName : "Contributor not found";
-
-    // Log date, GPS information, and contributor name
-    console.log("Created Date:", createdDate);
+    // Log date and GPS information
+    console.log("Created Date:", createdDateFormatted);
     console.log("Latitude:", latitude);
     console.log("Longitude:", longitude);
-    console.log("Contributor:", contributorFullName);
+
+    // Find the corresponding image data from self.images to get the contributor name
+    const imageData = (self.images) ? self.images.find(image => image.url === imageUrl) : null;
+    const contributorFullName = imageData && imageData.contributorFullName ? imageData.contributorFullName : "Contributor not found";
 
     // Only proceed with reverse geocoding if we have valid lat and lon
     if (latitude !== "Latitude not found" && longitude !== "Longitude not found") {
-        self.reverseGeocode(latitude, longitude);
+        self.reverseGeocode(latitude, longitude, contributorFullName, createdDateFormatted);
+    } else {
+        // If no location data, construct the info string with available data
+        const infoString = self.createInfoString(createdDateFormatted, null, contributorFullName);
+        self.sendSocketNotification("NEW_INFO_STRING", infoString);
     }
 },
 
@@ -382,7 +415,7 @@ module.exports = NodeHelper.create({
     });
   },
 
-  reverseGeocode: function(latitude, longitude) {
+  reverseGeocode: function(latitude, longitude, contributorFullName, createdDateFormatted) {
     const self = this;
     const startZoom = 12; // Start at town/borough level
 
@@ -416,7 +449,10 @@ module.exports = NodeHelper.create({
                             }
 
                             if (locationName) {
-                                console.log("Location Name:", locationName);
+                                // Construct the info string
+                                const infoString = self.createInfoString(createdDateFormatted, locationName, contributorFullName);
+                                self.sendSocketNotification("NEW_INFO_STRING", infoString);
+
                             } else if (zoomLevel > 3) {
                                 console.log(`No location found at zoom level ${zoomLevel}, retrying with zoom level ${zoomLevel - 1}`);
                                 attemptReverseGeocode(zoomLevel - 1);
@@ -434,7 +470,9 @@ module.exports = NodeHelper.create({
                         }
 
                         if (locationName) {
-                            console.log("Location Name:", locationName);
+                          // Construct the info string
+                          const infoString = self.createInfoString(createdDateFormatted, locationName, contributorFullName);
+                          self.sendSocketNotification("NEW_INFO_STRING", infoString);
                         } else if (zoomLevel > 3) {
                             console.log(`No location found at zoom level ${zoomLevel}, retrying with zoom level ${zoomLevel - 1}`);
                             attemptReverseGeocode(zoomLevel - 1);
@@ -456,6 +494,21 @@ module.exports = NodeHelper.create({
 
     // Start the reverse geocoding process at the initial zoom level
     attemptReverseGeocode(startZoom);
+},
+
+// Helper function to construct the info string
+createInfoString: function(createdDate, locationName, contributorFullName) {
+    let infoString = "";
+    if (createdDate !== "Date not found") {
+        infoString += `${createdDate}`;
+    }
+    if (locationName) {
+        infoString += (infoString ? " | " : "") + `${locationName}`;
+    }
+    if (contributorFullName !== "Contributor not found") {
+        infoString += (infoString ? " | " : "") + `Contributed by ${contributorFullName}`;
+    }
+    return infoString;
 },
 
   // Function to specifically get the territory name for US locations

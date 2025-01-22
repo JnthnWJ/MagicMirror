@@ -1,5 +1,3 @@
-
-
 // MMM-Wallpaper.js - Jonathan's Version
 
 Module.register("MMM-Wallpaper", {
@@ -192,6 +190,11 @@ Module.register("MMM-Wallpaper", {
 
   getDom: function() {
     const self = this;
+
+    // Clear the previous info div before creating a new one
+    if (self.infoDiv) {
+      self.wrapper.removeChild(self.infoDiv);
+    }
 
     // Create a div to hold the info string
     self.infoDiv = document.createElement("div");
