@@ -64,7 +64,7 @@ let config = {
     position: "fullscreen_below",
     config: { // See "Configuration options" for more information.
       source: "icloud:B20JtdOXm8Xvdky",
-      slideInterval: 60 * 1000, // Change slides every minute
+      slideInterval: 45 * 1000, // Change slides every 45 SECS
       filter: "none",
       size: "contain",
       maximumEntries: 200

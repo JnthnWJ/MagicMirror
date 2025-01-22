@@ -31,7 +31,7 @@
 /* Apply blurred background to Clock and Weather modules */
 .module.clock,
 .module.weather {
-    background: rgba(0, 0, 0, 0.1); /* Semi-transparent background */
+    background: rgba(0, 0, 0, 0.5); /* Semi-transparent background */
     backdrop-filter: blur(10px);    /* Apply Gaussian blur */
     -webkit-backdrop-filter: blur(10px); /* For Safari compatibility */
     border-radius: 10px;             /* Rounded corners (optional) */
