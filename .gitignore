@@ -57,6 +57,9 @@ Temporary Items
 .directory
 .Trash-*
 
+/config/*
+!/config/config.js.sample
+
 
 # Vim
 ## swap
