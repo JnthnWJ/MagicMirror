@@ -48,6 +48,65 @@ function b62decode(s) {
   return result;
 }
 
+// US State Abbreviations
+const stateAbbreviations = {
+    "Alabama": "AL",
+    "Alaska": "AK",
+    "Arizona": "AZ",
+    "Arkansas": "AR",
+    "California": "CA",
+    "Colorado": "CO",
+    "Connecticut": "CT",
+    "Delaware": "DE",
+    "Florida": "FL",
+    "Georgia": "GA",
+    "Hawaii": "HI",
+    "Idaho": "ID",
+    "Illinois": "IL",
+    "Indiana": "IN",
+    "Iowa": "IA",
+    "Kansas": "KS",
+    "Kentucky": "KY",
+    "Louisiana": "LA",
+    "Maine": "ME",
+    "Maryland": "MD",
+    "Massachusetts": "MA",
+    "Michigan": "MI",
+    "Minnesota": "MN",
+    "Mississippi": "MS",
+    "Missouri": "MO",
+    "Montana": "MT",
+    "Nebraska": "NE",
+    "Nevada": "NV",
+    "New Hampshire": "NH",
+    "New Jersey": "NJ",
+    "New Mexico": "NM",
+    "New York": "NY",
+    "North Carolina": "NC",
+    "North Dakota": "ND",
+    "Ohio": "OH",
+    "Oklahoma": "OK",
+    "Oregon": "OR",
+    "Pennsylvania": "PA",
+    "Rhode Island": "RI",
+    "South Carolina": "SC",
+    "South Dakota": "SD",
+    "Tennessee": "TN",
+    "Texas": "TX",
+    "Utah": "UT",
+    "Vermont": "VT",
+    "Virginia": "VA",
+    "Washington": "WA",
+    "West Virginia": "WV",
+    "Wisconsin": "WI",
+    "Wyoming": "WY",
+    "American Samoa": "AS",
+    "Guam": "GU",
+    "Northern Mariana Islands": "MP",
+    "Puerto Rico": "PR",
+    "U.S. Virgin Islands": "VI"
+};
+
 module.exports = NodeHelper.create({
   start: function() {
     var self = this;
@@ -415,98 +474,117 @@ module.exports = NodeHelper.create({
     });
   },
 
-  reverseGeocode: function(latitude, longitude, contributorFullName, createdDateFormatted) {
-    const self = this;
-    const startZoom = 12; // Start at town/borough level
+ reverseGeocode: function(latitude, longitude, contributorFullName, createdDateFormatted) {
+  const self = this;
+  const startZoom = 18;
 
-    const attemptReverseGeocode = (zoomLevel) => {
-        const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=${zoomLevel}&addressdetails=1&accept-language=en`;
+  const attemptReverseGeocode = (zoomLevel) => {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=${zoomLevel}&addressdetails=1&accept-language=en`;
 
-        fetch(url)
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
+    fetch(url)
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('Network response was not ok');
+        }
+        return response.json();
+      })
+      .then(data => {
+        console.log("Data from reverse geocode attempt:", data);
+        let locationName = null;
+        let countryCode = null;
+
+        if (data.address) {
+          countryCode = data.address.country_code;
+
+          // Prioritize location parts
+          if (data.address.tourism) {
+            locationName = data.address.tourism;
+          } else if (data.address.amenity) {
+            locationName = data.address.amenity;
+          } else if (data.address.hamlet) {
+            locationName = data.address.hamlet;
+          } else if (data.address.town) {
+            locationName = data.address.town;
+          } else if (data.address.city) {
+            locationName = data.address.city;
+          } else if (data.address.road && data.address.county) {
+            locationName = `${data.address.road}, ${data.address.county}`;
+          } else if (data.address.village) {
+            locationName = data.address.village;
+          } else if (data.address.suburb) {
+            locationName = data.address.suburb;
+          }
+
+          // Handle US locations and territories
+          if (countryCode === 'us') {
+            if (locationName && data.address.state) {
+              // Use abbreviation if we have road and county
+              if (locationName.includes(data.address.road) && locationName.includes(data.address.county)) {
+                locationName += `, ${stateAbbreviations[data.address.state] || data.address.state}`;
+              } else if (!locationName.includes(data.address.state)) {
+                // Append state if it's not already present
+                locationName += `, ${data.address.state}`;
+              }
+            }
+            console.log("US Location Name before territory check:", locationName);
+
+            // Special handling for US territories
+            self.getTerritory(latitude, longitude)
+              .then(territory => {
+                if (territory) {
+                  console.log("US Territory found:", territory);
+                  // Only append if not already present and not the same as state
+                  if (locationName && !locationName.includes(territory) && territory !== data.address.state) {
+                    locationName += ", " + territory;
+                  } else if (!locationName) {
+                    locationName = territory;
+                  }
                 }
-                return response.json();
-            })
-            .then(data => {
-                let locationName = null;
-                let countryCode = null;
+                console.log("US Location Name after territory check:", locationName);
 
-                if (data.address) {
-                    locationName = data.address.city || data.address.town || data.address.village || data.address.borough;
-                    countryCode = data.address.country_code;
+                const infoString = self.createInfoString(createdDateFormatted, locationName, contributorFullName);
+                self.sendSocketNotification("NEW_INFO_STRING", infoString);
+              })
+              .catch(error => {
+                console.error('Error during territory lookup:', error);
+                // Proceed with available locationName even if territory lookup fails
+                const infoString = self.createInfoString(createdDateFormatted, locationName, contributorFullName);
+                self.sendSocketNotification("NEW_INFO_STRING", infoString);
+              });
+          } else {
+            // Handle non-US locations
+            if (locationName && data.address.country && !locationName.includes(data.address.country)) {
+              locationName += ", " + data.address.country;
+            }
 
-                    if (countryCode === 'us') {
-                        // Get the state for US locations
-                        if (data.address.state) {
-                            locationName = (locationName ? locationName + ", " : "") + data.address.state;
-                        }
-                        // Special handling for US territories
-                        self.getTerritory(latitude, longitude).then(territory => {
-                            if (territory && !locationName.includes(territory)) {
-                                locationName += ", " + territory;
-                            }
+            const infoString = self.createInfoString(createdDateFormatted, locationName, contributorFullName);
+            self.sendSocketNotification("NEW_INFO_STRING", infoString);
+          }
+        } else {
+          console.log("Location Name: Location information not available in response.");
+          const infoString = self.createInfoString(createdDateFormatted, null, contributorFullName);
+          self.sendSocketNotification("NEW_INFO_STRING", infoString);
+        }
+      })
+      .catch(error => {
+        console.error('Error during reverse geocoding:', error);
+      });
+  };
 
-                            if (locationName) {
-                                // Construct the info string
-                                const infoString = self.createInfoString(createdDateFormatted, locationName, contributorFullName);
-                                self.sendSocketNotification("NEW_INFO_STRING", infoString);
-
-                            } else if (zoomLevel > 3) {
-                                console.log(`No location found at zoom level ${zoomLevel}, retrying with zoom level ${zoomLevel - 1}`);
-                                attemptReverseGeocode(zoomLevel - 1);
-                            } else {
-                                console.log("Location Name: Location not found");
-                            }
-                        });
-                    } else {
-                        // For non-US locations, append county and country if available
-                        if (data.address.county) {
-                            locationName = (locationName ? locationName + ", " : "") + data.address.county;
-                        }
-                        if (data.address.country) {
-                            locationName = (locationName ? locationName + ", " : "") + data.address.country;
-                        }
-
-                        if (locationName) {
-                          // Construct the info string
-                          const infoString = self.createInfoString(createdDateFormatted, locationName, contributorFullName);
-                          self.sendSocketNotification("NEW_INFO_STRING", infoString);
-                        } else if (zoomLevel > 3) {
-                            console.log(`No location found at zoom level ${zoomLevel}, retrying with zoom level ${zoomLevel - 1}`);
-                            attemptReverseGeocode(zoomLevel - 1);
-                        } else {
-                            console.log("Location Name: Location not found");
-                        }
-                    }
-                } else if (zoomLevel > 3) {
-                    console.log(`No location found at zoom level ${zoomLevel}, retrying with zoom level ${zoomLevel - 1}`);
-                    attemptReverseGeocode(zoomLevel - 1);
-                } else {
-                    console.log("Location Name: Location not found");
-                }
-            })
-            .catch(error => {
-                console.error('Error during reverse geocoding:', error);
-            });
-    };
-
-    // Start the reverse geocoding process at the initial zoom level
-    attemptReverseGeocode(startZoom);
+  attemptReverseGeocode(startZoom);
 },
 
 // Helper function to construct the info string
 createInfoString: function(createdDate, locationName, contributorFullName) {
     let infoString = "";
     if (createdDate !== "Date not found") {
-        infoString += `${createdDate}`;
+        infoString += `Date: ${createdDate}`;
     }
     if (locationName) {
-        infoString += (infoString ? " | " : "") + `${locationName}`;
+        infoString += (infoString ? " | " : "") + `Location: ${locationName}`;
     }
     if (contributorFullName !== "Contributor not found") {
-        infoString += (infoString ? " | " : "") + `Contributed by ${contributorFullName}`;
+        infoString += (infoString ? " | " : "") + `Contributor: ${contributorFullName}`;
     }
     return infoString;
 },
