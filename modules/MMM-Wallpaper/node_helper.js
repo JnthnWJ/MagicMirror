@@ -578,10 +578,10 @@ module.exports = NodeHelper.create({
 createInfoString: function(createdDate, locationName, contributorFullName) {
     let infoString = "";
     if (createdDate !== "Date not found") {
-        infoString += `Date: ${createdDate}`;
+        infoString += `${createdDate}`;
     }
     if (locationName) {
-        infoString += (infoString ? " | " : "") + `Location: ${locationName}`;
+        infoString += (infoString ? " | " : "") + `${locationName}`;
     }
     if (contributorFullName !== "Contributor not found") {
         infoString += (infoString ? " | " : "") + `Contributor: ${contributorFullName}`;
