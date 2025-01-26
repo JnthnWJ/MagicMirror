@@ -30,10 +30,15 @@
 
 /* Apply blurred background to Clock and Weather modules */
 .module.clock,
-.module.weather {
+.module.weather,
+.module.MMM-MQTT {
     background: rgba(0, 0, 0, 0.5); /* Semi-transparent background */
     backdrop-filter: blur(10px);    /* Apply Gaussian blur */
     -webkit-backdrop-filter: blur(10px); /* For Safari compatibility */
     border-radius: 10px;             /* Rounded corners (optional) */
     padding: 15px;                   /* Inner spacing */
+}
+
+#module_4_MMM-MQTT > div > div > div > div.mqtt-big-value-row > span.large.mqtt-big-value.bright {
+  font-weight: 300 !important;
 }
