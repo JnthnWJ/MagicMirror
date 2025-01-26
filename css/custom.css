@@ -42,3 +42,7 @@
 #module_4_MMM-MQTT > div > div > div > div.mqtt-big-value-row > span.large.mqtt-big-value.bright {
   font-weight: 300 !important;
 }
+
+#module_4_MMM-MQTT > div > div > div > div.mqtt-big-value-row > span.large.mqtt-big-value.dimmed {
+     font-weight: 300 !important;
+}
