@@ -300,6 +300,10 @@ Module.register("MMM-Wallpaper", {
     self.recentlyShown = [];
     self.photoWeights = new Map();
 
+    // Initialize navigation history for backward/forward navigation
+    self.navigationHistory = [];
+    self.navigationIndex = -1;
+
     if (self.config.debugPhotoSelection) {
       console.log("Enhanced photo selection system initialized");
       console.log(`Selection method: ${self.config.selectionMethod}`);
@@ -452,6 +456,85 @@ Module.register("MMM-Wallpaper", {
     }
   },
 
+  // Navigation history management for backward/forward navigation
+  addToNavigationHistory: function(imageIndex) {
+    var self = this;
+
+    if (imageIndex < 0 || imageIndex >= self.images.length) {
+      return;
+    }
+
+    // If we're not at the end of history (user went back and then forward),
+    // remove everything after current position
+    if (self.navigationIndex < self.navigationHistory.length - 1) {
+      self.navigationHistory = self.navigationHistory.slice(0, self.navigationIndex + 1);
+    }
+
+    // Add new entry to history
+    self.navigationHistory.push({
+      index: imageIndex,
+      url: self.images[imageIndex].url,
+      timestamp: Date.now()
+    });
+
+    // Update navigation index to point to the new entry
+    self.navigationIndex = self.navigationHistory.length - 1;
+
+    // Limit history size to prevent memory issues (keep last 100 entries)
+    var maxHistorySize = 100;
+    if (self.navigationHistory.length > maxHistorySize) {
+      var removeCount = self.navigationHistory.length - maxHistorySize;
+      self.navigationHistory = self.navigationHistory.slice(removeCount);
+      self.navigationIndex -= removeCount;
+    }
+
+    if (self.config.debugPhotoSelection) {
+      console.log(`Added to navigation history: index ${imageIndex}, history size: ${self.navigationHistory.length}, nav index: ${self.navigationIndex}`);
+    }
+  },
+
+  getPreviousImageIndex: function() {
+    var self = this;
+
+    // Check if we can go back in navigation history
+    if (self.navigationIndex > 0) {
+      self.navigationIndex--;
+      var historyEntry = self.navigationHistory[self.navigationIndex];
+
+      if (self.config.debugPhotoSelection) {
+        console.log(`Going back in history to index ${historyEntry.index}, nav index now: ${self.navigationIndex}`);
+      }
+
+      return historyEntry.index;
+    }
+
+    if (self.config.debugPhotoSelection) {
+      console.log("No previous image in navigation history");
+    }
+
+    return -1; // No previous image available
+  },
+
+  getNextImageIndex: function() {
+    var self = this;
+
+    // Check if we can go forward in navigation history
+    if (self.navigationIndex < self.navigationHistory.length - 1) {
+      self.navigationIndex++;
+      var historyEntry = self.navigationHistory[self.navigationIndex];
+
+      if (self.config.debugPhotoSelection) {
+        console.log(`Going forward in history to index ${historyEntry.index}, nav index now: ${self.navigationIndex}`);
+      }
+
+      return { index: historyEntry.index, isFromHistory: true };
+    }
+
+    // If we're at the end of history, select a new image
+    var newIndex = self.selectNextImageIndex();
+    return { index: newIndex, isFromHistory: false };
+  },
+
   loadNextImage: function() {
     var self = this;
 
@@ -467,7 +550,13 @@ Module.register("MMM-Wallpaper", {
 
     // Use enhanced photo selection if enabled
     if (self.config.enhancedShuffle) {
-      self.imageIndex = self.selectNextImageIndex();
+      var result = self.getNextImageIndex();
+      self.imageIndex = result.index;
+
+      // Only add to navigation history if we selected a new image (not from history)
+      if (!result.isFromHistory && self.imageIndex >= 0) {
+        self.addToNavigationHistory(self.imageIndex);
+      }
     } else {
       // Fallback to original sequential behavior
       self.imageIndex = (self.imageIndex + 1) % self.images.length;
@@ -488,6 +577,8 @@ Module.register("MMM-Wallpaper", {
   loadPreviousImage: function() {
     var self = this;
 
+    console.log(`loadPreviousImage called. Images available: ${self.images.length}, Current index: ${self.imageIndex}`);
+
     self.resetLoadImageTimer();
 
     if (self.nextImageElement !== null) {
@@ -498,17 +589,29 @@ Module.register("MMM-Wallpaper", {
 
     // Use enhanced photo selection if enabled, otherwise use sequential
     if (self.config.enhancedShuffle) {
-      // For previous image with enhanced shuffle, just select a new random image
-      self.imageIndex = self.selectNextImageIndex();
+      // Try to get previous image from navigation history
+      var previousIndex = self.getPreviousImageIndex();
+      if (previousIndex >= 0) {
+        self.imageIndex = previousIndex;
+        console.log(`Using navigation history: going back to image ${self.imageIndex}`);
+      } else {
+        // No previous image in history, fallback to sequential behavior
+        self.imageIndex = (self.imageIndex - 1 + self.images.length) % self.images.length;
+        console.log(`No navigation history: using sequential fallback to image ${self.imageIndex}`);
+      }
     } else {
       // Fallback to original sequential behavior
       self.imageIndex = (self.imageIndex - 1 + self.images.length) % self.images.length;
     }
 
     const previousImageData = self.images[self.imageIndex];
+    console.log(`Loading previous image ${self.imageIndex + 1}/${self.images.length}: ${previousImageData ? previousImageData.url : 'null'}`);
+
     if (previousImageData !== null) {
       self.nextImageElement = self.createImage(previousImageData);
       self.content.insertBefore(self.nextImageElement, self.title);
+    } else {
+      console.warn("previousImageData is null");
     }
   },
 
