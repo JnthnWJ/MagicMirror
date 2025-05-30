@@ -27,6 +27,55 @@ function shuffle(a) {
   return result;
 }
 
+// Enhanced shuffle with seed for reproducible results
+function shuffleWithSeed(array, seed) {
+  var source = array.slice(0);
+  var result = [];
+
+  // Simple seeded random number generator
+  function seededRandom(seed) {
+    var x = Math.sin(seed) * 10000;
+    return x - Math.floor(x);
+  }
+
+  for (var i = source.length; i > 0; --i) {
+    seed = (seed * 9301 + 49297) % 233280; // Linear congruential generator
+    var j = Math.floor(seededRandom(seed) * i);
+    result.push(source[j]);
+    source[j] = source[i - 1];
+  }
+
+  return result;
+}
+
+// Get rotating pool based on time and configuration
+function getRotatingPool(allPhotos, config) {
+  if (!config.rotatingPools || !allPhotos || allPhotos.length === 0) {
+    return shuffle(allPhotos).slice(0, config.poolSize || 1000);
+  }
+
+  // Calculate which pool we should be showing based on time
+  var hoursPerPool = config.poolRotationInterval || 2;
+  var millisecondsPerPool = hoursPerPool * 60 * 60 * 1000;
+  var poolIndex = Math.floor(Date.now() / millisecondsPerPool);
+
+  // Use pool index as seed for reproducible shuffling
+  var shuffledPhotos = shuffleWithSeed(allPhotos, poolIndex);
+
+  // Calculate how many pools we need to cover all photos
+  var poolSize = config.poolSize || 1000;
+  var totalPools = Math.ceil(allPhotos.length / poolSize);
+
+  // Use modulo to cycle through pools
+  var currentPoolIndex = poolIndex % totalPools;
+  var startIndex = currentPoolIndex * poolSize;
+  var endIndex = Math.min(startIndex + poolSize, shuffledPhotos.length);
+
+  console.log(`Rotating pools: Pool ${currentPoolIndex + 1}/${totalPools}, photos ${startIndex + 1}-${endIndex} of ${allPhotos.length}`);
+
+  return shuffledPhotos.slice(startIndex, endIndex);
+}
+
 function pick(a) {
   if (Array.isArray(a)) {
     return a[Math.floor(Math.random() * a.length)];
@@ -329,19 +378,24 @@ module.exports = NodeHelper.create({
 
     console.log(`Combined ${allImages.length} total images from ${self.totalAlbums} albums`);
 
-    // Shuffle the combined collection if shuffle is enabled
-    if (self.currentMultiConfig.shuffle) {
-      allImages = shuffle(allImages);
-    }
+    // Use rotating pool system if enabled, otherwise use original logic
+    if (self.currentMultiConfig.rotatingPools) {
+      allImages = getRotatingPool(allImages, self.currentMultiConfig);
+    } else {
+      // Shuffle the combined collection if shuffle is enabled
+      if (self.currentMultiConfig.shuffle) {
+        allImages = shuffle(allImages);
+      }
 
-    // Limit to maximum entries
-    var maxEntries = self.currentMultiConfig.maximumEntries;
-    if (self.currentMultiConfig.enhancedShuffle && maxEntries < 500) {
-      maxEntries = Math.min(1000, allImages.length); // Allow larger pools for 6+ hour variety
-    }
+      // Limit to maximum entries
+      var maxEntries = self.currentMultiConfig.maximumEntries;
+      if (self.currentMultiConfig.enhancedShuffle && maxEntries < 500) {
+        maxEntries = Math.min(1000, allImages.length); // Allow larger pools for 6+ hour variety
+      }
 
-    if (allImages.length > maxEntries) {
-      allImages = allImages.slice(0, maxEntries);
+      if (allImages.length > maxEntries) {
+        allImages = allImages.slice(0, maxEntries);
+      }
     }
 
     // Cache and send the results
@@ -563,17 +617,24 @@ module.exports = NodeHelper.create({
         // Filter out videos first
         var filteredPhotos = body.photos.filter((p) => p != null && p.mediaAssetType !== "video");
 
-        if (config.shuffle) {
-          filteredPhotos = shuffle(filteredPhotos);
-        }
+        console.log(`Total photos available in album: ${filteredPhotos.length}`);
 
-        // For enhanced shuffle, allow larger pools but limit to reasonable size
-        var maxEntries = config.maximumEntries;
-        if (config.enhancedShuffle && config.maximumEntries < 500) {
-          maxEntries = Math.min(1000, filteredPhotos.length); // Allow up to 1000 images for 6+ hour variety
-        }
+        // Use rotating pool system if enabled, otherwise use original logic
+        if (config.rotatingPools) {
+          self.iCloudPhotos = getRotatingPool(filteredPhotos, config);
+        } else {
+          if (config.shuffle) {
+            filteredPhotos = shuffle(filteredPhotos);
+          }
 
-        self.iCloudPhotos = filteredPhotos.slice(0, maxEntries);
+          // For enhanced shuffle, allow larger pools but limit to reasonable size
+          var maxEntries = config.maximumEntries;
+          if (config.enhancedShuffle && config.maximumEntries < 500) {
+            maxEntries = Math.min(1000, filteredPhotos.length); // Allow up to 1000 images for 6+ hour variety
+          }
+
+          self.iCloudPhotos = filteredPhotos.slice(0, maxEntries);
+        }
         self.iCloudState = "webasseturls";
 
         var photoGuids = self.iCloudPhotos.map((p) => { return p.photoGuid; });

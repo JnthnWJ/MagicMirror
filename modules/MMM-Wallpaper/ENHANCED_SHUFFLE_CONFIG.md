@@ -36,6 +36,18 @@ Photo selection algorithm to use. Options:
 
 Enables detailed logging of photo selection decisions for debugging purposes.
 
+### `rotatingPools` (boolean, default: `false`)
+
+Enables rotating photo pools to ensure ALL photos from large albums are eventually seen. Automatically cycles through different subsets of photos over time.
+
+### `poolSize` (number, default: `1000`)
+
+Number of photos in each rotating pool. Larger pools provide more variety per rotation but take longer to cycle through all photos.
+
+### `poolRotationInterval` (number, default: `2`)
+
+Hours between pool rotations. Smaller intervals mean you see fresh photos more frequently, but may cycle through pools faster than you can see all photos in each pool.
+
 ## Example Configuration
 
 ```javascript

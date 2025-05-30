@@ -24,11 +24,15 @@ Module.register("MMM-Wallpaper", {
     // Enhanced photo selection options
     enhancedShuffle: true,
     recentlyShownTracking: true,
-    recentlyShownCount: 50,
-    recentlyShownCooldown: 30,
+    recentlyShownCount: 500,
+    recentlyShownCooldown: 400,
     selectionMethod: "weighted_random", // "weighted_random", "pure_random", "sequential"
     persistRecentlyShown: false,
     debugPhotoSelection: false,
+    // Rotating photo pool options
+    rotatingPools: true,
+    poolSize: 1000,
+    poolRotationInterval: 2, // Hours between pool rotations
   },
 
   getStyles: function() {
