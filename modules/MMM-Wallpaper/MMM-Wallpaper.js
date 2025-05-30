@@ -21,6 +21,14 @@ Module.register("MMM-Wallpaper", {
     width: "auto",
     height: "auto",
     fadeEdges: false,
+    // Enhanced photo selection options
+    enhancedShuffle: true,
+    recentlyShownTracking: true,
+    recentlyShownCount: 50,
+    recentlyShownCooldown: 30,
+    selectionMethod: "weighted_random", // "weighted_random", "pure_random", "sequential"
+    persistRecentlyShown: false,
+    debugPhotoSelection: false,
   },
 
   getStyles: function() {
@@ -64,6 +72,9 @@ Module.register("MMM-Wallpaper", {
 
     self.imageElement = null;
     self.nextImageElement = null;
+
+    // Initialize enhanced photo selection system
+    self.initializePhotoSelection();
 
     self.getData();
     self.updateTimer = setInterval(() => self.getData(), self.config.updateInterval);
@@ -277,6 +288,166 @@ Module.register("MMM-Wallpaper", {
     return url;
   },
 
+  // Enhanced Photo Selection System
+  initializePhotoSelection: function() {
+    var self = this;
+
+    // Initialize recently shown tracking
+    self.recentlyShown = [];
+    self.photoWeights = new Map();
+
+    if (self.config.debugPhotoSelection) {
+      console.log("Enhanced photo selection system initialized");
+      console.log(`Selection method: ${self.config.selectionMethod}`);
+      console.log(`Recently shown tracking: ${self.config.recentlyShownTracking}`);
+      console.log(`Recently shown count: ${self.config.recentlyShownCount}`);
+      console.log(`Recently shown cooldown: ${self.config.recentlyShownCooldown} minutes`);
+    }
+  },
+
+  selectNextImageIndex: function() {
+    var self = this;
+
+    if (!self.images || self.images.length === 0) {
+      return -1;
+    }
+
+    if (self.images.length === 1) {
+      return 0;
+    }
+
+    var selectedIndex = -1;
+
+    switch (self.config.selectionMethod) {
+      case "pure_random":
+        selectedIndex = self.selectPureRandom();
+        break;
+      case "weighted_random":
+        selectedIndex = self.selectWeightedRandom();
+        break;
+      case "sequential":
+        selectedIndex = self.selectSequential();
+        break;
+      default:
+        selectedIndex = self.selectWeightedRandom();
+    }
+
+    // Track the selected image
+    if (selectedIndex >= 0 && self.config.recentlyShownTracking) {
+      self.trackRecentlyShown(selectedIndex);
+    }
+
+    if (self.config.debugPhotoSelection) {
+      console.log(`Selected image index: ${selectedIndex} (method: ${self.config.selectionMethod})`);
+      if (selectedIndex >= 0) {
+        console.log(`Selected image URL: ${self.images[selectedIndex].url}`);
+      }
+    }
+
+    return selectedIndex;
+  },
+
+  selectPureRandom: function() {
+    var self = this;
+    return Math.floor(Math.random() * self.images.length);
+  },
+
+  selectSequential: function() {
+    var self = this;
+    return (self.imageIndex + 1) % self.images.length;
+  },
+
+  selectWeightedRandom: function() {
+    var self = this;
+
+    // Create weights for all images
+    var weights = [];
+    var totalWeight = 0;
+
+    for (var i = 0; i < self.images.length; i++) {
+      var weight = self.calculateImageWeight(i);
+      weights.push(weight);
+      totalWeight += weight;
+    }
+
+    if (totalWeight === 0) {
+      // Fallback to pure random if all weights are zero
+      return self.selectPureRandom();
+    }
+
+    // Select based on weighted probability
+    var random = Math.random() * totalWeight;
+    var currentWeight = 0;
+
+    for (var i = 0; i < weights.length; i++) {
+      currentWeight += weights[i];
+      if (random <= currentWeight) {
+        return i;
+      }
+    }
+
+    // Fallback (should not reach here)
+    return self.images.length - 1;
+  },
+
+  calculateImageWeight: function(imageIndex) {
+    var self = this;
+    var baseWeight = 1.0;
+
+    if (!self.config.recentlyShownTracking) {
+      return baseWeight;
+    }
+
+    // Check if image was recently shown
+    var imageUrl = self.images[imageIndex].url;
+    var recentEntry = self.recentlyShown.find(entry => entry.url === imageUrl);
+
+    if (!recentEntry) {
+      return baseWeight;
+    }
+
+    // Calculate time since last shown (in minutes)
+    var timeSinceShown = (Date.now() - recentEntry.timestamp) / (1000 * 60);
+
+    if (timeSinceShown < self.config.recentlyShownCooldown) {
+      // Reduce weight for recently shown images
+      var cooldownFactor = timeSinceShown / self.config.recentlyShownCooldown;
+      return baseWeight * cooldownFactor * 0.1; // Heavily reduce weight
+    }
+
+    return baseWeight;
+  },
+
+  trackRecentlyShown: function(imageIndex) {
+    var self = this;
+
+    if (!self.config.recentlyShownTracking || imageIndex < 0 || imageIndex >= self.images.length) {
+      return;
+    }
+
+    var imageUrl = self.images[imageIndex].url;
+    var timestamp = Date.now();
+
+    // Remove existing entry for this image
+    self.recentlyShown = self.recentlyShown.filter(entry => entry.url !== imageUrl);
+
+    // Add new entry
+    self.recentlyShown.unshift({
+      url: imageUrl,
+      timestamp: timestamp,
+      index: imageIndex
+    });
+
+    // Limit the size of recently shown list
+    if (self.recentlyShown.length > self.config.recentlyShownCount) {
+      self.recentlyShown = self.recentlyShown.slice(0, self.config.recentlyShownCount);
+    }
+
+    if (self.config.debugPhotoSelection) {
+      console.log(`Tracked recently shown: ${imageUrl} (total tracked: ${self.recentlyShown.length})`);
+    }
+  },
+
   loadNextImage: function() {
     var self = this;
 
@@ -290,7 +461,13 @@ Module.register("MMM-Wallpaper", {
       self.nextImageElement = null;
     }
 
-    self.imageIndex = (self.imageIndex + 1) % self.images.length;
+    // Use enhanced photo selection if enabled
+    if (self.config.enhancedShuffle) {
+      self.imageIndex = self.selectNextImageIndex();
+    } else {
+      // Fallback to original sequential behavior
+      self.imageIndex = (self.imageIndex + 1) % self.images.length;
+    }
 
     const nextImageData = self.images[self.imageIndex];
     console.log(`Loading image ${self.imageIndex + 1}/${self.images.length}: ${nextImageData ? nextImageData.url : 'null'}`);
@@ -315,7 +492,14 @@ Module.register("MMM-Wallpaper", {
       self.nextImageElement = null;
     }
 
-    self.imageIndex = (self.imageIndex - 1 + self.images.length) % self.images.length;
+    // Use enhanced photo selection if enabled, otherwise use sequential
+    if (self.config.enhancedShuffle) {
+      // For previous image with enhanced shuffle, just select a new random image
+      self.imageIndex = self.selectNextImageIndex();
+    } else {
+      // Fallback to original sequential behavior
+      self.imageIndex = (self.imageIndex - 1 + self.images.length) % self.images.length;
+    }
 
     const previousImageData = self.images[self.imageIndex];
     if (previousImageData !== null) {

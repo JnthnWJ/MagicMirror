@@ -335,8 +335,13 @@ module.exports = NodeHelper.create({
     }
 
     // Limit to maximum entries
-    if (allImages.length > self.currentMultiConfig.maximumEntries) {
-      allImages = allImages.slice(0, self.currentMultiConfig.maximumEntries);
+    var maxEntries = self.currentMultiConfig.maximumEntries;
+    if (self.currentMultiConfig.enhancedShuffle && maxEntries < 500) {
+      maxEntries = Math.min(1000, allImages.length); // Allow larger pools for 6+ hour variety
+    }
+
+    if (allImages.length > maxEntries) {
+      allImages = allImages.slice(0, maxEntries);
     }
 
     // Cache and send the results
@@ -379,6 +384,12 @@ module.exports = NodeHelper.create({
 
         // Limit photos per album to prevent one album from dominating
         var maxPhotosPerAlbum = Math.ceil(config.maximumEntries / self.totalAlbums);
+
+        // For enhanced shuffle, allow more photos per album for better variety
+        if (config.enhancedShuffle) {
+          maxPhotosPerAlbum = Math.min(400, Math.ceil(1000 / self.totalAlbums));
+        }
+
         if (photos.length > maxPhotosPerAlbum) {
           photos = photos.slice(0, maxPhotosPerAlbum);
         }
@@ -549,10 +560,20 @@ module.exports = NodeHelper.create({
           body: '{"streamCtag":null}'
         });
       } else if (response.status === 200) {
+        // Filter out videos first
+        var filteredPhotos = body.photos.filter((p) => p != null && p.mediaAssetType !== "video");
+
         if (config.shuffle) {
-          body.photos = shuffle(body.photos);
+          filteredPhotos = shuffle(filteredPhotos);
         }
-        self.iCloudPhotos = body.photos.filter((p) => p != null && p.mediaAssetType !== "video").slice(0, config.maximumEntries);
+
+        // For enhanced shuffle, allow larger pools but limit to reasonable size
+        var maxEntries = config.maximumEntries;
+        if (config.enhancedShuffle && config.maximumEntries < 500) {
+          maxEntries = Math.min(1000, filteredPhotos.length); // Allow up to 1000 images for 6+ hour variety
+        }
+
+        self.iCloudPhotos = filteredPhotos.slice(0, maxEntries);
         self.iCloudState = "webasseturls";
 
         var photoGuids = self.iCloudPhotos.map((p) => { return p.photoGuid; });
