@@ -108,16 +108,37 @@ Module.register("MMM-Wallpaper", {
     var self = this;
 
     if (notification === "WALLPAPERS") {
-      if (payload.orientation === self.getOrientation() &&
-          ((Array.isArray(self.config.source) && self.config.source.includes(payload.source)) ||
-           (!Array.isArray(self.config.source) && self.config.source === payload.source)))
-      {
+      console.log(`Received WALLPAPERS notification with ${payload.images.length} images`);
+      console.log(`Payload source: ${JSON.stringify(payload.source)}`);
+      console.log(`Config source: ${JSON.stringify(self.config.source)}`);
+      console.log(`Orientation match: ${payload.orientation === self.getOrientation()}`);
+
+      // Check source matching logic
+      var sourceMatches = false;
+      if (Array.isArray(self.config.source)) {
+        // For multi-album configs, check if payload source is an array or matches any source
+        if (Array.isArray(payload.source)) {
+          sourceMatches = JSON.stringify(self.config.source.sort()) === JSON.stringify(payload.source.sort());
+        } else {
+          sourceMatches = self.config.source.includes(payload.source);
+        }
+      } else {
+        sourceMatches = self.config.source === payload.source;
+      }
+
+      console.log(`Source matches: ${sourceMatches}`);
+
+      if (payload.orientation === self.getOrientation() && sourceMatches) {
+        console.log(`Processing ${payload.images.length} images`);
         self.images = payload.images.slice(0, self.config.maximumEntries);
         self.imageIndex = self.imageIndex % (self.images.length || 1);
 
         if (self.imageElement === null && self.images.length > 0) {
+          console.log(`Loading first image: ${self.images[0].url}`);
           self.loadNextImage();
         }
+      } else {
+        console.log("WALLPAPERS notification ignored due to mismatch");
       }
     } else if (notification === "NEW_INFO_STRING") {
         self.infoString = payload;
@@ -148,11 +169,15 @@ Module.register("MMM-Wallpaper", {
     var self = this;
 
     return () => {
+      console.log(`onImageLoaded called for: ${imageData.url}`);
+
       self.resetLoadImageTimer();
 
       element.className = `wallpaper ${self.config.crossfade ? "crossfade-image" : ""}`;
       element.style.opacity = 1;
       self.title.style.display = "none";
+
+      console.log(`Image element opacity set to 1, className: ${element.className}`);
 
       setTimeout(() => {
         var caption = imageData.caption;
@@ -166,6 +191,8 @@ Module.register("MMM-Wallpaper", {
         }
         self.imageElement = self.nextImageElement;
         self.nextImageElement = null;
+
+        console.log(`Image transition completed`);
       }, self.config.crossfade ? 1000 : 0);
     };
   },
@@ -174,14 +201,23 @@ Module.register("MMM-Wallpaper", {
     var self = this;
     var img = document.createElement("img");
 
+    console.log(`Creating image element for: ${imageData.url}`);
+
     img.style.filter = self.config.filter;
     img.style["object-fit"] = self.config.size;
     img.style.opacity = 0;
     img.onload = self.onImageLoaded(imageData, img);
-    img.src = self.getImageUrl(imageData);
+    img.onerror = function() {
+      console.error(`Failed to load image: ${imageData.url}`);
+    };
+
+    const imageUrl = self.getImageUrl(imageData);
+    console.log(`Setting image src to: ${imageUrl}`);
+    img.src = imageUrl;
 
     // Log EXIF data after image is loaded
     img.addEventListener('load', () => {
+      console.log(`Image loaded successfully: ${img.src}`);
       self.getExifData(img.src);
     });
 
@@ -244,6 +280,8 @@ Module.register("MMM-Wallpaper", {
   loadNextImage: function() {
     var self = this;
 
+    console.log(`loadNextImage called. Images available: ${self.images.length}, Current index: ${self.imageIndex}`);
+
     self.resetLoadImageTimer();
 
     if (self.nextImageElement !== null) {
@@ -255,9 +293,13 @@ Module.register("MMM-Wallpaper", {
     self.imageIndex = (self.imageIndex + 1) % self.images.length;
 
     const nextImageData = self.images[self.imageIndex];
+    console.log(`Loading image ${self.imageIndex + 1}/${self.images.length}: ${nextImageData ? nextImageData.url : 'null'}`);
+
     if (nextImageData !== null) {
       self.nextImageElement = self.createImage(nextImageData);
       self.content.insertBefore(self.nextImageElement, self.title);
+    } else {
+      console.warn("nextImageData is null");
     }
   },
 

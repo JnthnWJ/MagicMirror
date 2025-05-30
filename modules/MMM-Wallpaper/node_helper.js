@@ -136,6 +136,14 @@ module.exports = NodeHelper.create({
   fetchWallpapers: function(config) {
     var self = this;
 
+    // Check if source is an array of multiple iCloud albums
+    if (Array.isArray(config.source) && config.source.length > 1 &&
+        config.source.every(src => typeof src === 'string' && src.toLowerCase().startsWith("icloud:"))) {
+      self.fetchMultipleiCloudAlbums(config);
+      return;
+    }
+
+    // For single sources or non-iCloud arrays, use the original logic
     config.source = pick(config.source);
     const cacheEntry = self.getCacheEntry(config);
     if (config.maximumEntries <= cacheEntry.images.length && Date.now() < cacheEntry.expires) {
@@ -171,6 +179,60 @@ module.exports = NodeHelper.create({
     }
   },
 
+  fetchMultipleiCloudAlbums: function(config) {
+    var self = this;
+
+    // Check cache first for the combined albums
+    const cacheEntry = self.getCacheEntry(config);
+    if (config.maximumEntries <= cacheEntry.images.length && Date.now() < cacheEntry.expires) {
+      self.images = cacheEntry.images;
+      self.sendResult(config);
+      return;
+    }
+
+    console.log(`Fetching images from ${config.source.length} iCloud albums...`);
+
+    // Track album fetching progress
+    self.albumResults = [];
+    self.albumsCompleted = 0;
+    self.totalAlbums = config.source.length;
+    self.currentMultiConfig = config;
+
+    // Set a timeout to handle stuck requests
+    if (self.multiAlbumTimeout) {
+      clearTimeout(self.multiAlbumTimeout);
+    }
+    self.multiAlbumTimeout = setTimeout(() => {
+      console.log("Multi-album fetch timeout, combining available results...");
+      self.combineAlbumResults();
+    }, 30000); // 30 second timeout
+
+    // Fetch each album
+    config.source.forEach((albumSource, index) => {
+      const albumConfig = Object.assign({}, config);
+      albumConfig.source = albumSource;
+      albumConfig.albumIndex = index;
+
+      const album = albumSource.substring(7).trim();
+      const partition = b62decode((album[0] === "A") ? album[1] : album.substring(1, 3));
+      const iCloudHost = `p${partition}-sharedstreams.icloud.com`;
+
+      console.log(`Fetching album ${index + 1}/${self.totalAlbums}: ${album}`);
+
+      self.requestMultiAlbum(albumConfig, {
+        method: "POST",
+        url: `https://${iCloudHost}/${album}/sharedstreams/webstream`,
+        headers: {
+          "Content-Type": "text/plain",
+          "User-Agent": "MagicMirror:MMM-Wallpaper:v1.0 (by /u/kolbyhack)",
+        },
+        body: '{"streamCtag":null}',
+        iCloudHost: iCloudHost,
+        album: album
+      });
+    });
+  },
+
   request: function(config, params) {
     var self = this;
 
@@ -190,6 +252,226 @@ module.exports = NodeHelper.create({
       });
   },
 
+  requestMultiAlbum: function(config, params) {
+    var self = this;
+
+    if (!("headers" in params)) {
+      params.headers = {};
+    }
+
+    if (!("cache-control" in params.headers)) {
+      params.headers["cache-control"] = "no-cache";
+    }
+
+    fetch(params.url, params)
+      .then((response) => {
+        response.text().then((body) => {
+          self.processMultiAlbumResponse(response, body, config, params);
+        });
+      })
+      .catch((error) => {
+        console.error(`Error fetching album ${config.albumIndex + 1}:`, error);
+        self.handleAlbumComplete(config.albumIndex, []);
+      });
+  },
+
+  processMultiAlbumResponse: function(response, body, config, params) {
+    var self = this;
+    var images = [];
+
+    try {
+      var source = config.source.toLowerCase();
+      if (source.startsWith("icloud:")) {
+        images = self.processiCloudDataMulti(response, JSON.parse(body), config, params);
+      }
+    } catch (error) {
+      console.error(`Error processing album ${config.albumIndex + 1}:`, error);
+    }
+
+    // Only call handleAlbumComplete if we have final results (asset request completed) or error
+    if (images.length > 0 || response.status !== 200) {
+      self.handleAlbumComplete(config.albumIndex, images);
+    }
+  },
+
+  handleAlbumComplete: function(albumIndex, images) {
+    var self = this;
+
+    // Store the results for this album
+    self.albumResults[albumIndex] = images;
+    self.albumsCompleted++;
+
+    console.log(`Album ${albumIndex + 1}/${self.totalAlbums} completed with ${images.length} images`);
+
+    // Check if all albums are complete
+    if (self.albumsCompleted === self.totalAlbums) {
+      self.combineAlbumResults();
+    }
+  },
+
+  combineAlbumResults: function() {
+    var self = this;
+
+    // Clear timeout
+    if (self.multiAlbumTimeout) {
+      clearTimeout(self.multiAlbumTimeout);
+      self.multiAlbumTimeout = null;
+    }
+
+    // Combine all images from all albums
+    var allImages = [];
+    self.albumResults.forEach((albumImages, index) => {
+      if (albumImages && albumImages.length > 0) {
+        console.log(`Adding ${albumImages.length} images from album ${index + 1}`);
+        allImages = allImages.concat(albumImages);
+      }
+    });
+
+    console.log(`Combined ${allImages.length} total images from ${self.totalAlbums} albums`);
+
+    // Shuffle the combined collection if shuffle is enabled
+    if (self.currentMultiConfig.shuffle) {
+      allImages = shuffle(allImages);
+    }
+
+    // Limit to maximum entries
+    if (allImages.length > self.currentMultiConfig.maximumEntries) {
+      allImages = allImages.slice(0, self.currentMultiConfig.maximumEntries);
+    }
+
+    // Cache and send the results
+    self.cacheResult(self.currentMultiConfig, allImages);
+
+    // Clean up
+    self.albumResults = [];
+    self.albumsCompleted = 0;
+    self.totalAlbums = 0;
+    self.currentMultiConfig = null;
+  },
+
+  processiCloudDataMulti: function(response, body, config, params) {
+    var self = this;
+    var album = params.album;
+    var iCloudHost = params.iCloudHost;
+    var images = [];
+    var contributorNames = {};
+
+    console.log(`Album ${config.albumIndex + 1}: Response status ${response.status}, isAssetRequest: ${params.isAssetRequest}`);
+
+    if (response.status === 330) {
+      // Handle redirect
+      const newHost = body["X-Apple-MMe-Host"] || iCloudHost;
+      console.log(`Album ${config.albumIndex + 1}: Redirecting to ${newHost}`);
+
+      self.requestMultiAlbum(config, {
+        method: "POST",
+        url: `https://${newHost}/${album}/sharedstreams/webstream`,
+        headers: params.headers,
+        body: params.body,
+        iCloudHost: newHost,
+        album: album
+      });
+      return [];
+    } else if (response.status === 200 && !params.isAssetRequest) {
+      // Process photos from webstream
+      if (body.photos) {
+        var photos = body.photos.filter((p) => p != null && p.mediaAssetType !== "video");
+
+        // Limit photos per album to prevent one album from dominating
+        var maxPhotosPerAlbum = Math.ceil(config.maximumEntries / self.totalAlbums);
+        if (photos.length > maxPhotosPerAlbum) {
+          photos = photos.slice(0, maxPhotosPerAlbum);
+        }
+
+        console.log(`Album ${config.albumIndex + 1}: Processing ${photos.length} photos`);
+
+        var photoGuids = photos.map((p) => { return p.photoGuid; });
+
+        // Store photos for this album instance
+        self[`iCloudPhotos_${config.albumIndex}`] = photos;
+
+        self.requestMultiAlbum(config, {
+          method: "POST",
+          url: `https://${iCloudHost}/${album}/sharedstreams/webasseturls`,
+          headers: {
+            "Content-Type": "text/plain",
+            "User-Agent": "MagicMirror:MMM-Wallpaper:v1.0 (by /u/kolbyhack)",
+          },
+          body: JSON.stringify({"photoGuids": photoGuids}),
+          iCloudHost: iCloudHost,
+          album: album,
+          isAssetRequest: true
+        });
+        return [];
+      }
+    } else if (response.status === 200 && params.isAssetRequest) {
+      // Process asset URLs
+      var photos = self[`iCloudPhotos_${config.albumIndex}`];
+      console.log(`Album ${config.albumIndex + 1}: Processing asset URLs for ${photos ? photos.length : 0} photos`);
+
+      if (photos && body.items) {
+        console.log(`Album ${config.albumIndex + 1}: Found ${Object.keys(body.items).length} items in response`);
+
+        // Map URLs to photos
+        for (var checksum in body.items) {
+          var p = body.items[checksum];
+          var loc = body.locations[p.url_location];
+          var host = loc.hosts[Math.floor(Math.random() * loc.hosts.length)];
+
+          for (var photo of photos) {
+            for (var d in photo.derivatives) {
+              var m = photo.derivatives[d];
+              if (m.checksum === checksum) {
+                m.url = `${loc.scheme}://${host}${p.url_path}`;
+                break;
+              }
+            }
+            contributorNames[photo.photoGuid] = photo.contributorFullName;
+          }
+        }
+
+        // Convert to image objects
+        images = photos.map((p) => {
+          var result = {
+            url: null,
+            caption: p.caption,
+            variants: [],
+            contributorFullName: contributorNames[p.photoGuid]
+          };
+
+          for (var i in p.derivatives) {
+            var d = p.derivatives[i];
+            if (+d.width > 0) {
+              result.variants.push({
+                url: d.url,
+                width: +d.width,
+                height: +d.height,
+              });
+            }
+          }
+
+          result.variants.sort((a, b) => { return a.width * a.height - b.width * b.height; });
+
+          if (result.variants.length > 0) {
+            result.url = result.variants[result.variants.length - 1].url;
+          } else {
+            console.warn(`Album ${config.albumIndex + 1}: Variants array is empty for photo:`, p);
+            result.url = null;
+          }
+
+          return result;
+        }).filter(img => img.url !== null); // Filter out images without URLs
+
+        console.log(`Album ${config.albumIndex + 1}: Successfully processed ${images.length} images`);
+
+        // Clean up stored photos
+        delete self[`iCloudPhotos_${config.albumIndex}`];
+      }
+    }
+
+    return images;
+  },
+
   cacheResult: function(config, images) {
     var self = this;
     var cache = self.getCacheEntry(config);
@@ -204,6 +486,11 @@ module.exports = NodeHelper.create({
     var self = this;
     var result = self.getCacheEntry(config);
     self.images = result.images;
+
+    console.log(`Sending WALLPAPERS notification with ${result.images.length} images`);
+    console.log(`Source: ${JSON.stringify(config.source)}`);
+    console.log(`Orientation: ${config.orientation}`);
+    console.log(`First image URL: ${result.images.length > 0 ? result.images[0].url : 'No images'}`);
 
     self.sendSocketNotification("WALLPAPERS", {
       "source": config.source,
@@ -335,7 +622,17 @@ module.exports = NodeHelper.create({
 
   getCacheEntry: function(config) {
     var self = this;
-    var key = crypto.createHash("sha1").update(`${config.source}::${config.orientation}`).digest("hex");
+
+    // Create a cache key that handles both single sources and arrays
+    var sourceKey;
+    if (Array.isArray(config.source)) {
+      // For arrays, sort and join to create a consistent key
+      sourceKey = config.source.slice().sort().join("|");
+    } else {
+      sourceKey = config.source;
+    }
+
+    var key = crypto.createHash("sha1").update(`${sourceKey}::${config.orientation}`).digest("hex");
 
     if (!(key in self.cache)) {
       self.cache[key] = {
