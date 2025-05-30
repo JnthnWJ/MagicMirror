@@ -441,14 +441,19 @@ module.exports = NodeHelper.create({
 
         // For enhanced shuffle, allow more photos per album for better variety
         if (config.enhancedShuffle) {
-          maxPhotosPerAlbum = Math.min(400, Math.ceil(1000 / self.totalAlbums));
+          if (config.rotatingPools) {
+            // For rotating pools, allow much larger per-album limits to access full collections
+            maxPhotosPerAlbum = Math.min(10000, photos.length); // Allow up to 10k photos per album
+          } else {
+            maxPhotosPerAlbum = Math.min(400, Math.ceil(1000 / self.totalAlbums));
+          }
         }
 
         if (photos.length > maxPhotosPerAlbum) {
           photos = photos.slice(0, maxPhotosPerAlbum);
         }
 
-        console.log(`Album ${config.albumIndex + 1}: Processing ${photos.length} photos`);
+        console.log(`Album ${config.albumIndex + 1}: Processing ${photos.length} photos (max allowed: ${maxPhotosPerAlbum})`);
 
         var photoGuids = photos.map((p) => { return p.photoGuid; });
 
