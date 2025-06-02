@@ -28,7 +28,7 @@ Module.register("MMM-Wallpaper", {
     recentlyShownCooldown: 400,
     selectionMethod: "weighted_random", // "weighted_random", "pure_random", "sequential"
     persistRecentlyShown: false,
-    debugPhotoSelection: false,
+    debugPhotoSelection: true,
     // Rotating photo pool options
     rotatingPools: true,
     poolSize: 1000,
@@ -123,11 +123,6 @@ Module.register("MMM-Wallpaper", {
     var self = this;
 
     if (notification === "WALLPAPERS") {
-      console.log(`Received WALLPAPERS notification with ${payload.images.length} images`);
-      console.log(`Payload source: ${JSON.stringify(payload.source)}`);
-      console.log(`Config source: ${JSON.stringify(self.config.source)}`);
-      console.log(`Orientation match: ${payload.orientation === self.getOrientation()}`);
-
       // Check source matching logic
       var sourceMatches = false;
       if (Array.isArray(self.config.source)) {
@@ -141,19 +136,13 @@ Module.register("MMM-Wallpaper", {
         sourceMatches = self.config.source === payload.source;
       }
 
-      console.log(`Source matches: ${sourceMatches}`);
-
       if (payload.orientation === self.getOrientation() && sourceMatches) {
-        console.log(`Processing ${payload.images.length} images`);
         self.images = payload.images.slice(0, self.config.maximumEntries);
         self.imageIndex = self.imageIndex % (self.images.length || 1);
 
         if (self.imageElement === null && self.images.length > 0) {
-          console.log(`Loading first image: ${self.images[0].url}`);
           self.loadNextImage();
         }
-      } else {
-        console.log("WALLPAPERS notification ignored due to mismatch");
       }
     } else if (notification === "NEW_INFO_STRING") {
         self.infoString = payload;
@@ -184,15 +173,11 @@ Module.register("MMM-Wallpaper", {
     var self = this;
 
     return () => {
-      console.log(`onImageLoaded called for: ${imageData.url}`);
-
       self.resetLoadImageTimer();
 
       element.className = `wallpaper ${self.config.crossfade ? "crossfade-image" : ""}`;
       element.style.opacity = 1;
       self.title.style.display = "none";
-
-      console.log(`Image element opacity set to 1, className: ${element.className}`);
 
       setTimeout(() => {
         var caption = imageData.caption;
@@ -206,8 +191,6 @@ Module.register("MMM-Wallpaper", {
         }
         self.imageElement = self.nextImageElement;
         self.nextImageElement = null;
-
-        console.log(`Image transition completed`);
       }, self.config.crossfade ? 1000 : 0);
     };
   },
@@ -215,8 +198,6 @@ Module.register("MMM-Wallpaper", {
   createImage: function(imageData) {
     var self = this;
     var img = document.createElement("img");
-
-    console.log(`Creating image element for: ${imageData.url}`);
 
     img.style.filter = self.config.filter;
     img.style["object-fit"] = self.config.size;
@@ -227,12 +208,10 @@ Module.register("MMM-Wallpaper", {
     };
 
     const imageUrl = self.getImageUrl(imageData);
-    console.log(`Setting image src to: ${imageUrl}`);
     img.src = imageUrl;
 
-    // Log EXIF data after image is loaded
+    // Get EXIF data after image is loaded
     img.addEventListener('load', () => {
-      console.log(`Image loaded successfully: ${img.src}`);
       self.getExifData(img.src);
     });
 
@@ -371,15 +350,32 @@ Module.register("MMM-Wallpaper", {
     // Create weights for all images
     var weights = [];
     var totalWeight = 0;
+    var recentlyShownCount = 0;
+
+    if (self.config.debugPhotoSelection) {
+      console.log(`🎲 Starting weighted random selection from ${self.images.length} images`);
+    }
 
     for (var i = 0; i < self.images.length; i++) {
       var weight = self.calculateImageWeight(i);
       weights.push(weight);
       totalWeight += weight;
+
+      if (weight < 1.0) {
+        recentlyShownCount++;
+      }
+    }
+
+    if (self.config.debugPhotoSelection) {
+      console.log(`📊 Weight summary: ${recentlyShownCount} recently shown images (reduced weight), ${self.images.length - recentlyShownCount} fresh images (full weight)`);
+      console.log(`📊 Total weight: ${totalWeight.toFixed(2)}`);
     }
 
     if (totalWeight === 0) {
       // Fallback to pure random if all weights are zero
+      if (self.config.debugPhotoSelection) {
+        console.log(`⚠️  All weights are zero, falling back to pure random`);
+      }
       return self.selectPureRandom();
     }
 
@@ -387,14 +383,24 @@ Module.register("MMM-Wallpaper", {
     var random = Math.random() * totalWeight;
     var currentWeight = 0;
 
+    if (self.config.debugPhotoSelection) {
+      console.log(`🎯 Random target: ${random.toFixed(4)} of ${totalWeight.toFixed(2)}`);
+    }
+
     for (var i = 0; i < weights.length; i++) {
       currentWeight += weights[i];
       if (random <= currentWeight) {
+        if (self.config.debugPhotoSelection) {
+          console.log(`✅ Selected image ${i} with weight ${weights[i].toFixed(4)} (cumulative: ${currentWeight.toFixed(4)})`);
+        }
         return i;
       }
     }
 
     // Fallback (should not reach here)
+    if (self.config.debugPhotoSelection) {
+      console.log(`⚠️  Fallback: selecting last image ${self.images.length - 1}`);
+    }
     return self.images.length - 1;
   },
 
@@ -403,6 +409,9 @@ Module.register("MMM-Wallpaper", {
     var baseWeight = 1.0;
 
     if (!self.config.recentlyShownTracking) {
+      if (self.config.debugPhotoSelection) {
+        console.log(`Image ${imageIndex}: No tracking enabled, weight = ${baseWeight}`);
+      }
       return baseWeight;
     }
 
@@ -411,6 +420,9 @@ Module.register("MMM-Wallpaper", {
     var recentEntry = self.recentlyShown.find(entry => entry.url === imageUrl);
 
     if (!recentEntry) {
+      if (self.config.debugPhotoSelection) {
+        console.log(`Image ${imageIndex}: Not recently shown, weight = ${baseWeight}`);
+      }
       return baseWeight;
     }
 
@@ -420,7 +432,17 @@ Module.register("MMM-Wallpaper", {
     if (timeSinceShown < self.config.recentlyShownCooldown) {
       // Reduce weight for recently shown images
       var cooldownFactor = timeSinceShown / self.config.recentlyShownCooldown;
-      return baseWeight * cooldownFactor * 0.1; // Heavily reduce weight
+      var reducedWeight = baseWeight * cooldownFactor * 0.1; // Heavily reduce weight
+
+      if (self.config.debugPhotoSelection) {
+        console.log(`Image ${imageIndex}: Recently shown ${timeSinceShown.toFixed(1)} min ago (cooldown: ${self.config.recentlyShownCooldown} min), weight reduced from ${baseWeight} to ${reducedWeight.toFixed(4)}`);
+      }
+
+      return reducedWeight;
+    }
+
+    if (self.config.debugPhotoSelection) {
+      console.log(`Image ${imageIndex}: Shown ${timeSinceShown.toFixed(1)} min ago (past cooldown), weight = ${baseWeight}`);
     }
 
     return baseWeight;
@@ -430,11 +452,18 @@ Module.register("MMM-Wallpaper", {
     var self = this;
 
     if (!self.config.recentlyShownTracking || imageIndex < 0 || imageIndex >= self.images.length) {
+      if (self.config.debugPhotoSelection) {
+        console.log(`Tracking skipped: recentlyShownTracking=${self.config.recentlyShownTracking}, imageIndex=${imageIndex}, imagesLength=${self.images.length}`);
+      }
       return;
     }
 
     var imageUrl = self.images[imageIndex].url;
     var timestamp = Date.now();
+
+    // Check if this image was already tracked
+    var existingEntry = self.recentlyShown.find(entry => entry.url === imageUrl);
+    var wasAlreadyTracked = !!existingEntry;
 
     // Remove existing entry for this image
     self.recentlyShown = self.recentlyShown.filter(entry => entry.url !== imageUrl);
@@ -452,7 +481,13 @@ Module.register("MMM-Wallpaper", {
     }
 
     if (self.config.debugPhotoSelection) {
-      console.log(`Tracked recently shown: ${imageUrl} (total tracked: ${self.recentlyShown.length})`);
+      var shortUrl = imageUrl.substring(imageUrl.lastIndexOf('/') + 1, imageUrl.lastIndexOf('/') + 20) + '...';
+      console.log(`🔄 Tracked image ${imageIndex} (${shortUrl}) - ${wasAlreadyTracked ? 'DUPLICATE' : 'NEW'} - Total tracked: ${self.recentlyShown.length}/${self.config.recentlyShownCount}`);
+
+      if (wasAlreadyTracked) {
+        var timeSinceLastShown = (timestamp - existingEntry.timestamp) / (1000 * 60);
+        console.log(`⚠️  DUPLICATE DETECTED: Image was shown ${timeSinceLastShown.toFixed(1)} minutes ago (cooldown: ${self.config.recentlyShownCooldown} min)`);
+      }
     }
   },
 
@@ -538,8 +573,6 @@ Module.register("MMM-Wallpaper", {
   loadNextImage: function() {
     var self = this;
 
-    console.log(`loadNextImage called. Images available: ${self.images.length}, Current index: ${self.imageIndex}`);
-
     self.resetLoadImageTimer();
 
     if (self.nextImageElement !== null) {
@@ -563,7 +596,6 @@ Module.register("MMM-Wallpaper", {
     }
 
     const nextImageData = self.images[self.imageIndex];
-    console.log(`Loading image ${self.imageIndex + 1}/${self.images.length}: ${nextImageData ? nextImageData.url : 'null'}`);
 
     if (nextImageData !== null) {
       self.nextImageElement = self.createImage(nextImageData);
@@ -576,8 +608,6 @@ Module.register("MMM-Wallpaper", {
   // New function to load the previous image
   loadPreviousImage: function() {
     var self = this;
-
-    console.log(`loadPreviousImage called. Images available: ${self.images.length}, Current index: ${self.imageIndex}`);
 
     self.resetLoadImageTimer();
 
@@ -593,11 +623,9 @@ Module.register("MMM-Wallpaper", {
       var previousIndex = self.getPreviousImageIndex();
       if (previousIndex >= 0) {
         self.imageIndex = previousIndex;
-        console.log(`Using navigation history: going back to image ${self.imageIndex}`);
       } else {
         // No previous image in history, fallback to sequential behavior
         self.imageIndex = (self.imageIndex - 1 + self.images.length) % self.images.length;
-        console.log(`No navigation history: using sequential fallback to image ${self.imageIndex}`);
       }
     } else {
       // Fallback to original sequential behavior
@@ -605,7 +633,6 @@ Module.register("MMM-Wallpaper", {
     }
 
     const previousImageData = self.images[self.imageIndex];
-    console.log(`Loading previous image ${self.imageIndex + 1}/${self.images.length}: ${previousImageData ? previousImageData.url : 'null'}`);
 
     if (previousImageData !== null) {
       self.nextImageElement = self.createImage(previousImageData);

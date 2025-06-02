@@ -71,8 +71,6 @@ function getRotatingPool(allPhotos, config) {
   var startIndex = currentPoolIndex * poolSize;
   var endIndex = Math.min(startIndex + poolSize, shuffledPhotos.length);
 
-  console.log(`Rotating pools: Pool ${currentPoolIndex + 1}/${totalPools}, photos ${startIndex + 1}-${endIndex} of ${allPhotos.length}`);
-
   return shuffledPhotos.slice(startIndex, endIndex);
 }
 
@@ -160,7 +158,6 @@ module.exports = NodeHelper.create({
   start: function() {
     var self = this;
 
-    console.log(`Starting node helper for: ${self.name}`);
     self.cache = {};
     self.handlers = {};
     self.chromecast = null;
@@ -176,8 +173,6 @@ module.exports = NodeHelper.create({
         // Ensure self.images is populated before calling getExifData
         if (self.images && self.images.length > 0) {
           self.getExifData(payload);
-        } else {
-          console.log("Images array not populated yet. Skipping EXIF data retrieval.");
         }
     }
   },
@@ -239,8 +234,6 @@ module.exports = NodeHelper.create({
       return;
     }
 
-    console.log(`Fetching images from ${config.source.length} iCloud albums...`);
-
     // Track album fetching progress
     self.albumResults = [];
     self.albumsCompleted = 0;
@@ -252,7 +245,6 @@ module.exports = NodeHelper.create({
       clearTimeout(self.multiAlbumTimeout);
     }
     self.multiAlbumTimeout = setTimeout(() => {
-      console.log("Multi-album fetch timeout, combining available results...");
       self.combineAlbumResults();
     }, 30000); // 30 second timeout
 
@@ -265,8 +257,6 @@ module.exports = NodeHelper.create({
       const album = albumSource.substring(7).trim();
       const partition = b62decode((album[0] === "A") ? album[1] : album.substring(1, 3));
       const iCloudHost = `p${partition}-sharedstreams.icloud.com`;
-
-      console.log(`Fetching album ${index + 1}/${self.totalAlbums}: ${album}`);
 
       self.requestMultiAlbum(albumConfig, {
         method: "POST",
@@ -350,8 +340,6 @@ module.exports = NodeHelper.create({
     self.albumResults[albumIndex] = images;
     self.albumsCompleted++;
 
-    console.log(`Album ${albumIndex + 1}/${self.totalAlbums} completed with ${images.length} images`);
-
     // Check if all albums are complete
     if (self.albumsCompleted === self.totalAlbums) {
       self.combineAlbumResults();
@@ -371,12 +359,9 @@ module.exports = NodeHelper.create({
     var allImages = [];
     self.albumResults.forEach((albumImages, index) => {
       if (albumImages && albumImages.length > 0) {
-        console.log(`Adding ${albumImages.length} images from album ${index + 1}`);
         allImages = allImages.concat(albumImages);
       }
     });
-
-    console.log(`Combined ${allImages.length} total images from ${self.totalAlbums} albums`);
 
     // Use rotating pool system if enabled, otherwise use original logic
     if (self.currentMultiConfig.rotatingPools) {
@@ -415,12 +400,9 @@ module.exports = NodeHelper.create({
     var images = [];
     var contributorNames = {};
 
-    console.log(`Album ${config.albumIndex + 1}: Response status ${response.status}, isAssetRequest: ${params.isAssetRequest}`);
-
     if (response.status === 330) {
       // Handle redirect
       const newHost = body["X-Apple-MMe-Host"] || iCloudHost;
-      console.log(`Album ${config.albumIndex + 1}: Redirecting to ${newHost}`);
 
       self.requestMultiAlbum(config, {
         method: "POST",
@@ -453,8 +435,6 @@ module.exports = NodeHelper.create({
           photos = photos.slice(0, maxPhotosPerAlbum);
         }
 
-        console.log(`Album ${config.albumIndex + 1}: Processing ${photos.length} photos (max allowed: ${maxPhotosPerAlbum})`);
-
         var photoGuids = photos.map((p) => { return p.photoGuid; });
 
         // Store photos for this album instance
@@ -477,10 +457,8 @@ module.exports = NodeHelper.create({
     } else if (response.status === 200 && params.isAssetRequest) {
       // Process asset URLs
       var photos = self[`iCloudPhotos_${config.albumIndex}`];
-      console.log(`Album ${config.albumIndex + 1}: Processing asset URLs for ${photos ? photos.length : 0} photos`);
 
       if (photos && body.items) {
-        console.log(`Album ${config.albumIndex + 1}: Found ${Object.keys(body.items).length} items in response`);
 
         // Map URLs to photos
         for (var checksum in body.items) {
@@ -532,8 +510,6 @@ module.exports = NodeHelper.create({
           return result;
         }).filter(img => img.url !== null); // Filter out images without URLs
 
-        console.log(`Album ${config.albumIndex + 1}: Successfully processed ${images.length} images`);
-
         // Clean up stored photos
         delete self[`iCloudPhotos_${config.albumIndex}`];
       }
@@ -556,11 +532,6 @@ module.exports = NodeHelper.create({
     var self = this;
     var result = self.getCacheEntry(config);
     self.images = result.images;
-
-    console.log(`Sending WALLPAPERS notification with ${result.images.length} images`);
-    console.log(`Source: ${JSON.stringify(config.source)}`);
-    console.log(`Orientation: ${config.orientation}`);
-    console.log(`First image URL: ${result.images.length > 0 ? result.images[0].url : 'No images'}`);
 
     self.sendSocketNotification("WALLPAPERS", {
       "source": config.source,
@@ -621,8 +592,6 @@ module.exports = NodeHelper.create({
       } else if (response.status === 200) {
         // Filter out videos first
         var filteredPhotos = body.photos.filter((p) => p != null && p.mediaAssetType !== "video");
-
-        console.log(`Total photos available in album: ${filteredPhotos.length}`);
 
         // Use rotating pool system if enabled, otherwise use original logic
         if (config.rotatingPools) {
@@ -814,10 +783,7 @@ module.exports = NodeHelper.create({
         longitude = (data.gps.GPSLongitudeRef === "W" ? -lon : lon).toFixed(6);
     }
 
-    // Log date and GPS information
-    console.log("Created Date:", createdDateFormatted);
-    console.log("Latitude:", latitude);
-    console.log("Longitude:", longitude);
+
 
     // Find the corresponding image data from self.images to get the contributor name
     const imageData = (self.images) ? self.images.find(image => image.url === imageUrl) : null;
@@ -873,7 +839,6 @@ module.exports = NodeHelper.create({
         return response.json();
       })
       .then(data => {
-        console.log("Data from reverse geocode attempt:", data);
         let locationName = null;
         let countryCode = null;
 
@@ -910,13 +875,11 @@ module.exports = NodeHelper.create({
                 locationName += `, ${data.address.state}`;
               }
             }
-            console.log("US Location Name before territory check:", locationName);
 
             // Special handling for US territories
             self.getTerritory(latitude, longitude)
               .then(territory => {
                 if (territory) {
-                  console.log("US Territory found:", territory);
                   // Only append if not already present and not the same as state
                   if (locationName && !locationName.includes(territory) && territory !== data.address.state) {
                     locationName += ", " + territory;
@@ -924,7 +887,6 @@ module.exports = NodeHelper.create({
                     locationName = territory;
                   }
                 }
-                console.log("US Location Name after territory check:", locationName);
 
                 const infoString = self.createInfoString(createdDateFormatted, locationName, contributorFullName);
                 self.sendSocketNotification("NEW_INFO_STRING", infoString);
@@ -945,7 +907,6 @@ module.exports = NodeHelper.create({
             self.sendSocketNotification("NEW_INFO_STRING", infoString);
           }
         } else {
-          console.log("Location Name: Location information not available in response.");
           const infoString = self.createInfoString(createdDateFormatted, null, contributorFullName);
           self.sendSocketNotification("NEW_INFO_STRING", infoString);
         }
