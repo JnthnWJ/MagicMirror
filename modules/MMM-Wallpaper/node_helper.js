@@ -71,6 +71,10 @@ function getRotatingPool(allPhotos, config) {
   var startIndex = currentPoolIndex * poolSize;
   var endIndex = Math.min(startIndex + poolSize, shuffledPhotos.length);
 
+  if (config.debugAlbumCombining) {
+    console.log(`🔄 Rotating Pool: Using pool ${currentPoolIndex + 1} of ${totalPools} (photos ${startIndex + 1}-${endIndex} from ${allPhotos.length} total)`);
+  }
+
   return shuffledPhotos.slice(startIndex, endIndex);
 }
 
@@ -228,8 +232,10 @@ module.exports = NodeHelper.create({
 
     // Check cache first for the combined albums
     const cacheEntry = self.getCacheEntry(config);
-    if (config.maximumEntries <= cacheEntry.images.length && Date.now() < cacheEntry.expires) {
-      self.images = cacheEntry.images;
+    if (cacheEntry.images.length > 0 && Date.now() < cacheEntry.expires) {
+      if (config.debugAlbumCombining) {
+        console.log(`💾 Using cached combined collection: ${cacheEntry.images.length} photos`);
+      }
       self.sendResult(config);
       return;
     }
@@ -359,31 +365,22 @@ module.exports = NodeHelper.create({
     var allImages = [];
     self.albumResults.forEach((albumImages, index) => {
       if (albumImages && albumImages.length > 0) {
+        if (self.currentMultiConfig.debugAlbumCombining) {
+          console.log(`🔗 Album ${index + 1}: Adding ${albumImages.length} photos to combined collection`);
+        }
         allImages = allImages.concat(albumImages);
+      } else {
+        if (self.currentMultiConfig.debugAlbumCombining) {
+          console.log(`⚠️  Album ${index + 1}: No photos to add (${albumImages ? albumImages.length : 'null'} photos)`);
+        }
       }
     });
 
-    // Use rotating pool system if enabled, otherwise use original logic
-    if (self.currentMultiConfig.rotatingPools) {
-      allImages = getRotatingPool(allImages, self.currentMultiConfig);
-    } else {
-      // Shuffle the combined collection if shuffle is enabled
-      if (self.currentMultiConfig.shuffle) {
-        allImages = shuffle(allImages);
-      }
-
-      // Limit to maximum entries
-      var maxEntries = self.currentMultiConfig.maximumEntries;
-      if (self.currentMultiConfig.enhancedShuffle && maxEntries < 500) {
-        maxEntries = Math.min(1000, allImages.length); // Allow larger pools for 6+ hour variety
-      }
-
-      if (allImages.length > maxEntries) {
-        allImages = allImages.slice(0, maxEntries);
-      }
+    if (self.currentMultiConfig.debugAlbumCombining) {
+      console.log(`📊 Combined total: ${allImages.length} photos from ${self.albumResults.length} albums`);
     }
 
-    // Cache and send the results
+    // Cache the FULL combined collection (don't apply rotating pools here)
     self.cacheResult(self.currentMultiConfig, allImages);
 
     // Clean up
@@ -431,8 +428,15 @@ module.exports = NodeHelper.create({
           }
         }
 
+        if (config.debugAlbumCombining) {
+          console.log(`📸 Album ${config.albumIndex + 1}: Found ${photos.length} photos, limit is ${maxPhotosPerAlbum}`);
+        }
+
         if (photos.length > maxPhotosPerAlbum) {
           photos = photos.slice(0, maxPhotosPerAlbum);
+          if (config.debugAlbumCombining) {
+            console.log(`✂️  Album ${config.albumIndex + 1}: Trimmed to ${photos.length} photos`);
+          }
         }
 
         var photoGuids = photos.map((p) => { return p.photoGuid; });
@@ -531,12 +535,44 @@ module.exports = NodeHelper.create({
   sendResult: function(config) {
     var self = this;
     var result = self.getCacheEntry(config);
-    self.images = result.images;
+    var imagesToSend = result.images;
+
+    // Apply rotating pool logic for multiple iCloud albums
+    if (Array.isArray(config.source) && config.source.length > 1 &&
+        config.source.every(src => typeof src === 'string' && src.toLowerCase().startsWith("icloud:"))) {
+
+      if (config.rotatingPools) {
+        imagesToSend = getRotatingPool(result.images, config);
+        if (config.debugAlbumCombining) {
+          console.log(`📤 Sending ${imagesToSend.length} images from rotating pool (from ${result.images.length} total cached)`);
+        }
+      } else {
+        // Apply non-rotating pool logic
+        if (config.shuffle) {
+          imagesToSend = shuffle(result.images.slice()); // Make a copy before shuffling
+        }
+
+        // Limit to maximum entries
+        var maxEntries = config.maximumEntries;
+        if (config.enhancedShuffle && maxEntries < 500) {
+          maxEntries = Math.min(1000, imagesToSend.length);
+        }
+
+        if (imagesToSend.length > maxEntries) {
+          imagesToSend = imagesToSend.slice(0, maxEntries);
+        }
+      }
+    } else {
+      // For single sources, just limit to maximumEntries
+      imagesToSend = result.images.slice(0, config.maximumEntries);
+    }
+
+    self.images = imagesToSend;
 
     self.sendSocketNotification("WALLPAPERS", {
       "source": config.source,
       "orientation": config.orientation,
-      "images": result.images.slice(0, config.maximumEntries),
+      "images": imagesToSend,
     });
   },
 
