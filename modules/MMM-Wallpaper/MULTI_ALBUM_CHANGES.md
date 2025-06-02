@@ -109,6 +109,53 @@ The implementation includes:
 3. The plugin will automatically detect multiple albums and combine them
 4. Images will be shuffled together from all albums
 
+## Critical Bug Fix (June 2, 2025)
+
+### Issue: Caching Bug Causing Album Switching Behavior
+
+**Problem**: Users reported that the system appeared to be "switching between albums" rather than truly shuffling photos from multiple albums together. Investigation revealed that only 36 images (the size of the smaller album) were being sent to the frontend instead of the expected 1,000+ images from the combined pool.
+
+**Root Cause**: The caching system was storing already-processed rotating pools instead of the full combined collection. This caused subsequent requests to return the cached processed pool (which might contain photos from only one album) rather than applying fresh rotating pool logic to the full combined collection.
+
+**Symptoms**:
+
+- Frontend received exactly 36 images instead of 1,000
+- Long periods showing only photos from one album
+- Appearance of "switching" between albums rather than mixing
+
+**Fix Applied**:
+
+1. **Modified `combineAlbumResults()`**:
+
+   - Now caches the **full combined collection** (4,930 photos) instead of processed pools
+   - Removed rotating pool processing from the combination phase
+
+2. **Enhanced `sendResult()`**:
+
+   - Added logic to apply rotating pool processing **every time** photos are requested
+   - Ensures fresh pool calculation on each request, not just initial fetch
+   - Added debug logging to track pool generation
+
+3. **Updated `fetchMultipleiCloudAlbums()`**:
+   - Modified cache check to properly handle full collections
+   - Improved cache validation logic
+
+**Result**:
+
+- System now correctly sends 1,000 images per pool from the combined 4,930-photo collection
+- Photos from both albums are properly mixed in each rotating pool
+- Rotating pools change every 2 hours as designed
+- All 4,930 photos are accessible across the 5-pool rotation cycle
+
+**Debug Features Added**:
+
+- `debugAlbumCombining` configuration option
+- Detailed logging of album combination process
+- Pool generation and size tracking
+- Cache usage monitoring
+
+This fix ensures the multi-album system works as originally intended, with true photo mixing rather than album switching.
+
 ## Limitations
 
 - Only works with iCloud album sources
