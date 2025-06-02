@@ -6,7 +6,7 @@ Module.register("MMM-Wallpaper", {
     source: "bing",
     updateInterval: 60 * 60 * 1000,
     slideInterval: 5 * 60 * 1000,
-    maximumEntries: 10,
+    maximumEntries: 1000,
     filter: "grayscale(0.5) brightness(0.5)",
     orientation: "auto",
     caption: true,
@@ -137,8 +137,17 @@ Module.register("MMM-Wallpaper", {
       }
 
       if (payload.orientation === self.getOrientation() && sourceMatches) {
+        if (self.config.debugPhotoSelection) {
+          console.log(`📥 Received ${payload.images.length} images from node_helper`);
+          console.log(`📊 Using maximumEntries: ${self.config.maximumEntries}`);
+        }
+
         self.images = payload.images.slice(0, self.config.maximumEntries);
         self.imageIndex = self.imageIndex % (self.images.length || 1);
+
+        if (self.config.debugPhotoSelection) {
+          console.log(`📋 Final image pool size: ${self.images.length} images`);
+        }
 
         if (self.imageElement === null && self.images.length > 0) {
           self.loadNextImage();
@@ -284,11 +293,15 @@ Module.register("MMM-Wallpaper", {
     self.navigationIndex = -1;
 
     if (self.config.debugPhotoSelection) {
-      console.log("Enhanced photo selection system initialized");
-      console.log(`Selection method: ${self.config.selectionMethod}`);
-      console.log(`Recently shown tracking: ${self.config.recentlyShownTracking}`);
-      console.log(`Recently shown count: ${self.config.recentlyShownCount}`);
-      console.log(`Recently shown cooldown: ${self.config.recentlyShownCooldown} minutes`);
+      console.log("🚀 Enhanced photo selection system initialized");
+      console.log(`📋 Configuration:`);
+      console.log(`  - Selection method: ${self.config.selectionMethod}`);
+      console.log(`  - Recently shown tracking: ${self.config.recentlyShownTracking}`);
+      console.log(`  - Recently shown count: ${self.config.recentlyShownCount}`);
+      console.log(`  - Recently shown cooldown: ${self.config.recentlyShownCooldown} minutes`);
+      console.log(`  - Maximum entries: ${self.config.maximumEntries}`);
+      console.log(`  - Enhanced shuffle: ${self.config.enhancedShuffle}`);
+      console.log(`  - Rotating pools: ${self.config.rotatingPools}`);
     }
   },
 

@@ -52,11 +52,14 @@ Image 43: Not recently shown, weight = 1
 ⚠️  DUPLICATE DETECTED: Image was shown 12.5 minutes ago (cooldown: 400 min)
 ```
 
-### 3. Current Configuration
+### 3. Fixed Configuration Issue
 
-**Default Settings (for debugging):**
+**🚨 ISSUE IDENTIFIED:** The `maximumEntries` was set to only 10, severely limiting the photo pool size and causing frequent duplicates.
+
+**✅ SOLUTION:** Updated default settings:
 
 ```javascript
+maximumEntries: 1000,        // INCREASED from 10 - THIS WAS THE PROBLEM!
 enhancedShuffle: true,
 recentlyShownTracking: true,
 recentlyShownCount: 500,
@@ -64,6 +67,12 @@ recentlyShownCooldown: 400, // 6.67 hours
 selectionMethod: "weighted_random",
 debugPhotoSelection: true, // ENABLED for debugging
 ```
+
+**Why This Fixes Duplicates:**
+
+- With only 36 images in the pool, you'd see duplicates every 36 photos
+- With 1000+ images, duplicates should be extremely rare
+- The enhanced shuffle system needs a large pool to work effectively
 
 ## How to Use
 
