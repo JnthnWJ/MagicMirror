@@ -1,5 +1,6 @@
 *.js
 *.mjs
+*.sh
 .husky/pre-commit
 .prettierignore
 /config

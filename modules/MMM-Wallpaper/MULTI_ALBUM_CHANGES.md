@@ -156,6 +156,14 @@ The implementation includes:
 
 This fix ensures the multi-album system works as originally intended, with true photo mixing rather than album switching.
 
+**Important**: After applying this fix, you must clear the cache to get the benefits. Use the provided script:
+
+```bash
+./scripts/clear-wallpaper-cache.sh
+```
+
+See `scripts/README.md` for detailed instructions.
+
 ## Limitations
 
 - Only works with iCloud album sources
