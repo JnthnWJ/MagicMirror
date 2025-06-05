@@ -235,13 +235,19 @@ Module.register("MMM-Wallpaper", {
       self.wrapper.removeChild(self.infoDiv);
     }
 
-    // Create a div to hold the info string
-    self.infoDiv = document.createElement("div");
-    self.infoDiv.className = "info-container";
-    self.infoDiv.innerHTML = self.infoString; // Set the info string
+    // Only create and show the info div if there's content to display
+    if (self.infoString && self.infoString.trim() !== "") {
+      // Create a div to hold the info string
+      self.infoDiv = document.createElement("div");
+      self.infoDiv.className = "info-container";
+      self.infoDiv.innerHTML = self.infoString; // Set the info string
 
-    // Append the info div to the wrapper
-    self.wrapper.appendChild(self.infoDiv);
+      // Append the info div to the wrapper
+      self.wrapper.appendChild(self.infoDiv);
+    } else {
+      // If no info string, ensure infoDiv is null so it doesn't get displayed
+      self.infoDiv = null;
+    }
 
     return self.wrapper;
   },
@@ -588,6 +594,10 @@ Module.register("MMM-Wallpaper", {
 
     self.resetLoadImageTimer();
 
+    // Clear metadata immediately when starting to load a new image
+    self.infoString = "";
+    self.updateDom();
+
     if (self.nextImageElement !== null) {
       self.nextImageElement.onload = null;
       self.content.removeChild(self.nextImageElement);
@@ -623,6 +633,10 @@ Module.register("MMM-Wallpaper", {
     var self = this;
 
     self.resetLoadImageTimer();
+
+    // Clear metadata immediately when starting to load a new image
+    self.infoString = "";
+    self.updateDom();
 
     if (self.nextImageElement !== null) {
       self.nextImageElement.onload = null;
