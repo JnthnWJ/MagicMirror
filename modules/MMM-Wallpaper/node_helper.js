@@ -867,7 +867,11 @@ module.exports = NodeHelper.create({
   const attemptReverseGeocode = (zoomLevel) => {
     const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=${zoomLevel}&addressdetails=1&accept-language=en`;
 
-    fetch(url)
+    fetch(url, {
+      headers: {
+        'User-Agent': 'MagicMirror:MMM-Wallpaper:v1.0 (by /u/kolbyhack)'
+      }
+    })
       .then(response => {
         if (!response.ok) {
           throw new Error('Network response was not ok');
@@ -975,7 +979,11 @@ createInfoString: function(createdDate, locationName, contributorFullName) {
     const self = this;
     const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=5&addressdetails=1&accept-language=en`;
 
-    return fetch(url)
+    return fetch(url, {
+      headers: {
+        'User-Agent': 'MagicMirror:MMM-Wallpaper:v1.0 (by /u/kolbyhack)'
+      }
+    })
         .then(response => {
             if (!response.ok) {
                 throw new Error('Network response was not ok');
