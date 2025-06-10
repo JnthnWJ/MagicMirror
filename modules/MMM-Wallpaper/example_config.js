@@ -4,7 +4,7 @@
  * Copy the relevant sections to your config/config.js file
  */
 
-// Example 1: Single iCloud album with enhanced shuffle
+// Example 1: Single iCloud album with enhanced shuffle and intelligent cropping
 {
   module: "MMM-Wallpaper",
   position: "fullscreen_below",
@@ -12,21 +12,69 @@
     source: "icloud:YOUR_ALBUM_ID_HERE",
     slideInterval: 5 * 60 * 1000, // Change photo every 5 minutes
     updateInterval: 60 * 60 * 1000, // Check for new photos every hour
-    
+
     // Enhanced photo selection (recommended for large albums)
     enhancedShuffle: true,
     recentlyShownTracking: true,
     recentlyShownCount: 100, // Track last 100 photos
     recentlyShownCooldown: 60, // Don't repeat photos for 1 hour
     selectionMethod: "weighted_random",
-    
+
+    // Intelligent cropping options
+    intelligentCropping: true,
+    landscapeCroppingMode: "crop", // "crop", "fit", "auto"
+    panoramicThreshold: 3.0, // Images wider than 3:1 won't be cropped
+    extremeAspectThreshold: 0.3, // Images narrower than 0.3:1 won't be cropped
+    debugImageCropping: false, // Enable for troubleshooting
+
     // Optional: Enable debug logging during setup
     debugPhotoSelection: false,
-    
+
     // Display options
     caption: true,
     crossfade: true,
     filter: "grayscale(0.3) brightness(0.7)",
+  }
+}
+
+// Example 2: Conservative cropping - only crop when image is much wider than screen
+{
+  module: "MMM-Wallpaper",
+  position: "fullscreen_below",
+  config: {
+    source: "icloud:YOUR_ALBUM_ID_HERE",
+    slideInterval: 5 * 60 * 1000,
+    updateInterval: 60 * 60 * 1000,
+
+    // Conservative intelligent cropping
+    intelligentCropping: true,
+    landscapeCroppingMode: "auto", // Only crop when significantly wider than screen
+    panoramicThreshold: 2.5, // More conservative panoramic detection
+    extremeAspectThreshold: 0.4, // More conservative extreme aspect detection
+
+    // Display options
+    caption: true,
+    crossfade: true,
+    filter: "brightness(0.8)",
+  }
+}
+
+// Example 3: Disabled intelligent cropping - use traditional behavior
+{
+  module: "MMM-Wallpaper",
+  position: "fullscreen_below",
+  config: {
+    source: "icloud:YOUR_ALBUM_ID_HERE",
+    slideInterval: 5 * 60 * 1000,
+    updateInterval: 60 * 60 * 1000,
+
+    // Disable intelligent cropping
+    intelligentCropping: false,
+    size: "contain", // Traditional object-fit setting
+
+    // Display options
+    caption: true,
+    crossfade: true,
   }
 }
 

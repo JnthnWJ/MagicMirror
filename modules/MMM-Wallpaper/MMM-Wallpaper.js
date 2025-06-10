@@ -33,6 +33,12 @@ Module.register("MMM-Wallpaper", {
     rotatingPools: true,
     poolSize: 1000,
     poolRotationInterval: 2, // Hours between pool rotations
+    // Intelligent cropping options
+    intelligentCropping: true,
+    landscapeCroppingMode: "crop", // "crop", "fit", "auto"
+    panoramicThreshold: 3.0, // Aspect ratio threshold for panoramic images
+    extremeAspectThreshold: 0.3, // Threshold for extremely tall/narrow images
+    debugImageCropping: false,
   },
 
   getStyles: function() {
@@ -184,7 +190,10 @@ Module.register("MMM-Wallpaper", {
     return () => {
       self.resetLoadImageTimer();
 
-      element.className = `wallpaper ${self.config.crossfade ? "crossfade-image" : ""}`;
+      // Only set className if it wasn't already set by intelligent cropping
+      if (!element.className.includes("wallpaper")) {
+        element.className = `wallpaper ${self.config.crossfade ? "crossfade-image" : ""}`;
+      }
       element.style.opacity = 1;
       self.title.style.display = "none";
 
@@ -209,9 +218,35 @@ Module.register("MMM-Wallpaper", {
     var img = document.createElement("img");
 
     img.style.filter = self.config.filter;
-    img.style["object-fit"] = self.config.size;
     img.style.opacity = 0;
-    img.onload = self.onImageLoaded(imageData, img);
+
+    // Set initial object-fit to default, will be updated after image loads
+    img.style["object-fit"] = self.config.size;
+
+    img.onload = function() {
+      // Apply intelligent cropping after image loads and we have dimensions
+      if (self.config.intelligentCropping) {
+        var analysis = self.analyzeImageAspectRatio(img.naturalWidth, img.naturalHeight);
+        var displayMode = self.determineImageDisplayMode(analysis);
+
+        // Update object-fit based on analysis
+        img.style["object-fit"] = displayMode.objectFit;
+
+        // Add appropriate CSS class for additional styling
+        img.className = `wallpaper ${displayMode.cssClass} ${self.config.crossfade ? "crossfade-image" : ""}`;
+
+        if (self.config.debugImageCropping) {
+          console.log(`🖼️  Applied display mode for ${img.naturalWidth}x${img.naturalHeight} image: ${displayMode.reason}`);
+        }
+      } else {
+        // Use default styling when intelligent cropping is disabled
+        img.className = `wallpaper ${self.config.crossfade ? "crossfade-image" : ""}`;
+      }
+
+      // Call the original onload handler
+      self.onImageLoaded(imageData, img)();
+    };
+
     img.onerror = function() {
       console.error(`Failed to load image: ${imageData.url}`);
     };
@@ -284,6 +319,124 @@ Module.register("MMM-Wallpaper", {
     }
 
     return url;
+  },
+
+  // Intelligent cropping functions
+  analyzeImageAspectRatio: function(imageWidth, imageHeight) {
+    var self = this;
+
+    if (!imageWidth || !imageHeight || imageWidth <= 0 || imageHeight <= 0) {
+      return {
+        aspectRatio: 1.0,
+        type: "unknown",
+        shouldCrop: false,
+        reason: "Invalid dimensions"
+      };
+    }
+
+    var aspectRatio = imageWidth / imageHeight;
+    var viewport = self.getViewport();
+    var screenAspectRatio = viewport.width / viewport.height;
+
+    var analysis = {
+      aspectRatio: aspectRatio,
+      screenAspectRatio: screenAspectRatio,
+      imageWidth: imageWidth,
+      imageHeight: imageHeight
+    };
+
+    // Determine image type and cropping decision
+    if (aspectRatio > self.config.panoramicThreshold) {
+      // Panoramic image - don't crop to preserve content
+      analysis.type = "panoramic";
+      analysis.shouldCrop = false;
+      analysis.reason = `Panoramic image (${aspectRatio.toFixed(2)} > ${self.config.panoramicThreshold})`;
+    } else if (aspectRatio < self.config.extremeAspectThreshold) {
+      // Extremely tall/narrow image - don't crop
+      analysis.type = "extreme_tall";
+      analysis.shouldCrop = false;
+      analysis.reason = `Extremely tall image (${aspectRatio.toFixed(2)} < ${self.config.extremeAspectThreshold})`;
+    } else if (aspectRatio > 1.0) {
+      // Landscape image
+      analysis.type = "landscape";
+      if (self.config.intelligentCropping && self.config.landscapeCroppingMode === "crop") {
+        analysis.shouldCrop = true;
+        analysis.reason = "Landscape image with cropping enabled";
+      } else if (self.config.landscapeCroppingMode === "auto") {
+        // Auto mode: crop if image is significantly wider than screen
+        analysis.shouldCrop = aspectRatio > (screenAspectRatio * 1.2);
+        analysis.reason = analysis.shouldCrop ?
+          `Auto crop: image much wider than screen (${aspectRatio.toFixed(2)} vs ${screenAspectRatio.toFixed(2)})` :
+          `Auto fit: image aspect ratio close to screen`;
+      } else {
+        analysis.shouldCrop = false;
+        analysis.reason = "Landscape cropping disabled";
+      }
+    } else {
+      // Portrait or square image
+      analysis.type = aspectRatio === 1.0 ? "square" : "portrait";
+      analysis.shouldCrop = false;
+      analysis.reason = "Portrait/square image - preserve full content";
+    }
+
+    if (self.config.debugImageCropping) {
+      console.log(`🖼️  Image analysis:`, analysis);
+    }
+
+    return analysis;
+  },
+
+  determineImageDisplayMode: function(analysis) {
+    var self = this;
+
+    if (!self.config.intelligentCropping) {
+      return {
+        objectFit: self.config.size,
+        cssClass: "wallpaper-default",
+        reason: "Intelligent cropping disabled"
+      };
+    }
+
+    var displayMode = {};
+
+    if (analysis.shouldCrop) {
+      displayMode.objectFit = "cover";
+      displayMode.cssClass = "wallpaper-crop-landscape";
+      displayMode.reason = "Cropping landscape image to fill screen";
+    } else {
+      switch (analysis.type) {
+        case "panoramic":
+          displayMode.objectFit = "contain";
+          displayMode.cssClass = "wallpaper-fit-panoramic";
+          displayMode.reason = "Fitting panoramic image to preserve content";
+          break;
+        case "extreme_tall":
+          displayMode.objectFit = "contain";
+          displayMode.cssClass = "wallpaper-fit-extreme";
+          displayMode.reason = "Fitting extremely tall image to preserve content";
+          break;
+        case "portrait":
+          displayMode.objectFit = "contain";
+          displayMode.cssClass = "wallpaper-fit-portrait";
+          displayMode.reason = "Fitting portrait image to preserve content";
+          break;
+        case "square":
+          displayMode.objectFit = "cover";
+          displayMode.cssClass = "wallpaper-crop-square";
+          displayMode.reason = "Cropping square image to fill screen";
+          break;
+        default:
+          displayMode.objectFit = self.config.size;
+          displayMode.cssClass = "wallpaper-default";
+          displayMode.reason = "Using default display mode";
+      }
+    }
+
+    if (self.config.debugImageCropping) {
+      console.log(`🎨 Display mode:`, displayMode);
+    }
+
+    return displayMode;
   },
 
   // Enhanced Photo Selection System
