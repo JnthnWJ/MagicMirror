@@ -13,6 +13,7 @@ The system analyzes each image's aspect ratio and applies different display mode
 ### Landscape Images (width > height)
 
 - **Standard landscapes**: Cropped to fill the screen, eliminating black bars
+- **Face-aware cropping**: Crop position biased toward upper portion (25% from top) to preserve faces
 - **Panoramic images**: Preserved in full to maintain content (configurable threshold)
 
 ### Portrait Images (height > width)
@@ -20,11 +21,15 @@ The system analyzes each image's aspect ratio and applies different display mode
 - **Always preserved**: Full image displayed with letterboxing as needed
 - **Maintains aspect ratio**: No content is lost
 
+### Square Images (1:1 aspect ratio)
+
+- **Content preserved**: Full image displayed with letterboxing as needed
+- **No cropping**: Ensures no content is lost from centered subjects
+
 ### Special Cases
 
 - **Panoramic images**: Extremely wide images (default >3:1 ratio) are not cropped
 - **Extreme aspect ratios**: Very tall/narrow images (default <0.3:1 ratio) are not cropped
-- **Square images**: Cropped to fill screen
 
 ## Configuration Options
 
@@ -115,11 +120,11 @@ The feature works by:
 
 ### CSS Classes Applied
 
-- `.wallpaper-crop-landscape`: Landscape images that are cropped
+- `.wallpaper-crop-landscape`: Landscape images that are cropped (with face-aware positioning)
 - `.wallpaper-fit-portrait`: Portrait images that are fitted
+- `.wallpaper-fit-square`: Square images that are fitted (content preserved)
 - `.wallpaper-fit-panoramic`: Panoramic images that are fitted
 - `.wallpaper-fit-extreme`: Extremely tall/narrow images that are fitted
-- `.wallpaper-crop-square`: Square images that are cropped
 - `.wallpaper-default`: Default behavior when intelligent cropping is disabled
 
 ## Compatibility

@@ -18,7 +18,7 @@
 /* Intelligent cropping CSS classes */
 .MMM-Wallpaper .wallpaper-crop-landscape {
   object-fit: cover;
-  object-position: center;
+  object-position: 50% 25%; /* Bias toward upper portion to preserve faces */
 }
 
 .MMM-Wallpaper .wallpaper-fit-portrait {
@@ -36,8 +36,8 @@
   object-position: center;
 }
 
-.MMM-Wallpaper .wallpaper-crop-square {
-  object-fit: cover;
+.MMM-Wallpaper .wallpaper-fit-square {
+  object-fit: contain;
   object-position: center;
 }
 

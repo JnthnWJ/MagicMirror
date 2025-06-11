@@ -373,7 +373,7 @@ Module.register("MMM-Wallpaper", {
         analysis.reason = "Landscape cropping disabled";
       }
     } else {
-      // Portrait or square image
+      // Portrait or square image - both preserve full content
       analysis.type = aspectRatio === 1.0 ? "square" : "portrait";
       analysis.shouldCrop = false;
       analysis.reason = "Portrait/square image - preserve full content";
@@ -421,9 +421,9 @@ Module.register("MMM-Wallpaper", {
           displayMode.reason = "Fitting portrait image to preserve content";
           break;
         case "square":
-          displayMode.objectFit = "cover";
-          displayMode.cssClass = "wallpaper-crop-square";
-          displayMode.reason = "Cropping square image to fill screen";
+          displayMode.objectFit = "contain";
+          displayMode.cssClass = "wallpaper-fit-square";
+          displayMode.reason = "Fitting square image to preserve content";
           break;
         default:
           displayMode.objectFit = self.config.size;
