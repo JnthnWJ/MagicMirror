@@ -26,19 +26,171 @@
   --gap-body-left: 60px;
 
   --gap-modules: 30px;
+
+  /* Liquid Glass Design Variables */
+  --lg-bg-color: rgba(255, 255, 255, 0.15);
+  --lg-highlight: rgba(255, 255, 255, 0.4);
+  --lg-text: #ffffff;
+  --lg-shadow: rgba(0, 0, 0, 0.3);
+  --lg-border: rgba(255, 255, 255, 0.2);
 }
 
-/* Apply blurred background to Clock and Weather modules */
+/* SVG Filter Definition for Liquid Glass Distortion */
+/* This will be added to the DOM via JavaScript */
+
+/* Liquid Glass Effect for Modules */
 .module.clock,
 .module.weather,
 .module.MMM-MQTT {
-    background: rgba(0, 0, 0, 0.5); /* Semi-transparent background */
-    backdrop-filter: blur(10px);    /* Apply Gaussian blur */
-    -webkit-backdrop-filter: blur(10px); /* For Safari compatibility */
-    border-radius: 10px;             /* Rounded corners (optional) */
-    padding: 15px;                   /* Inner spacing */
+    position: relative;
+    background: transparent;
+    border-radius: 20px;
+    padding: 20px;
+    overflow: hidden;
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.3),
+        0 0 0 1px var(--lg-border);
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    /* Ensure proper stacking context */
+    isolation: isolate;
+    /* Force hardware acceleration */
+    transform: translateZ(0);
+    will-change: transform;
 }
 
+<<<<<<< Updated upstream
+/* Liquid Glass Effect for Info Container - Special Positioning */
+.MMM-Wallpaper .info-container {
+    /* Only apply non-conflicting liquid glass properties */
+    background: transparent;
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.3),
+        0 0 0 1px var(--lg-border);
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* Electron-specific optimizations */
+.liquid-glass-electron {
+    /* Enhanced hardware acceleration for Electron */
+    transform: translateZ(0) !important;
+    will-change: transform, filter, backdrop-filter !important;
+    isolation: isolate !important;
+    backface-visibility: hidden !important;
+}
+
+.liquid-glass-electron::before {
+    /* Stronger backdrop filter for Electron rendering */
+    backdrop-filter: blur(15px) saturate(2.0) brightness(1.1) !important;
+    -webkit-backdrop-filter: blur(15px) saturate(2.0) brightness(1.1) !important;
+    /* Enhanced layer creation */
+    transform: translateZ(0) !important;
+    will-change: backdrop-filter, filter !important;
+    /* Better edge handling */
+    filter-margin: 10px !important;
+}
+
+/* Browser Compatibility Fallbacks */
+@supports not (backdrop-filter: blur(12px)) {
+    .module.clock::before,
+    .module.weather::before,
+    .module.MMM-MQTT::before,
+    .MMM-Wallpaper .info-container::before {
+        background: rgba(0, 0, 0, 0.6) !important;
+        backdrop-filter: none !important;
+        filter: none !important;
+    }
+}
+
+/* Reduced motion preference support */
+@media (prefers-reduced-motion: reduce) {
+    .module.clock,
+    .module.weather,
+    .module.MMM-MQTT,
+    .MMM-Wallpaper .info-container {
+        transition: none !important;
+    }
+}
+
+/* Liquid Glass Layering System */
+.module.clock::before,
+.module.weather::before,
+.module.MMM-MQTT::before,
+.MMM-Wallpaper .info-container::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    backdrop-filter: blur(12px) saturate(1.8);
+    -webkit-backdrop-filter: blur(12px) saturate(1.8);
+    border-radius: inherit;
+    pointer-events: none;
+    /* Force the backdrop filter to be visible */
+    background: rgba(255, 255, 255, 0.01);
+    /* Apply SVG distortion only to the backdrop layer, not the content */
+    filter: url(#liquid-glass-distortion);
+}
+
+.module.clock::after,
+.module.weather::after,
+.module.MMM-MQTT::after,
+.MMM-Wallpaper .info-container::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: var(--lg-bg-color);
+    border-radius: inherit;
+    box-shadow:
+        inset 1px 1px 0 var(--lg-highlight),
+        inset 0 0 8px var(--lg-highlight);
+    pointer-events: none;
+}
+
+
+
+
+
+/* Improved Text Contrast on Liquid Glass */
+.module.clock .time,
+.module.weather .bright,
+.module.MMM-MQTT .bright {
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+    color: var(--lg-text);
+}
+
+.module.clock .date,
+.module.weather .normal,
+.module.MMM-MQTT .normal {
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Wallpaper Info Container Specific Overrides */
+.MMM-Wallpaper .info-container {
+    /* Critical positioning overrides - must preserve original layout */
+    position: absolute !important;
+    bottom: 20px !important;
+    left: 50% !important;
+    transform: translateX(-50%) translateZ(0) !important;
+
+    /* Size and spacing overrides */
+    padding: 15px 25px !important;
+    border-radius: 15px !important;
+    max-width: 90% !important;
+    width: auto !important; /* Allow auto-sizing to content */
+
+    /* Text alignment and display */
+    text-align: center !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+
+    /* Ensure proper z-index and stacking */
+    z-index: 1000 !important;
+    isolation: isolate !important;
+    will-change: transform !important;
+}
+
+/* MQTT Module Specific Styling */
 #module_4_MMM-MQTT > div > div > div > div.mqtt-big-value-row > span.large.mqtt-big-value.bright {
   font-weight: 300 !important;
 }

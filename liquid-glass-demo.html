@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Liquid Glass Effects Demo - MagicMirror</title>
+    <link rel="stylesheet" type="text/css" href="css/main.css" />
+    <link rel="stylesheet" type="text/css" href="css/custom.css" />
+    <link rel="stylesheet" type="text/css" href="fonts/roboto.css" />
+    <style>
+        body {
+            background: url('background.png') center center / cover no-repeat;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 30px;
+            padding: 20px;
+            position: relative;
+        }
+
+        .demo-module {
+            width: 300px;
+            min-height: 200px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+
+        .demo-content {
+            padding: 20px;
+        }
+
+        .demo-title {
+            font-size: 24px;
+            font-weight: 300;
+            margin-bottom: 10px;
+            color: var(--color-text-bright);
+        }
+
+        .demo-subtitle {
+            font-size: 16px;
+            color: var(--color-text-dimmed);
+            margin-bottom: 20px;
+        }
+
+        .demo-value {
+            font-size: 48px;
+            font-weight: 100;
+            color: var(--color-text-bright);
+            margin: 10px 0;
+        }
+
+        .demo-info {
+            font-size: 14px;
+            color: var(--color-text);
+            line-height: 1.4;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            color: white;
+            font-family: var(--font-secondary);
+            font-size: 14px;
+            max-width: 300px;
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+
+        .control-group input[type="range"] {
+            width: 100%;
+            margin-bottom: 5px;
+        }
+
+        .control-group input[type="checkbox"] {
+            margin-right: 8px;
+        }
+
+        .control-value {
+            font-size: 12px;
+            color: #ccc;
+        }
+
+        .info-panel {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            color: white;
+            font-family: var(--font-secondary);
+            font-size: 12px;
+            max-width: 250px;
+        }
+
+        .browser-support {
+            margin-top: 10px;
+        }
+
+        .support-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 3px 0;
+        }
+
+        .support-yes { color: #4CAF50; }
+        .support-no { color: #f44336; }
+        .support-partial { color: #FF9800; }
+    </style>
+</head>
+<body>
+    <!-- Demo Modules -->
+    <div class="module clock demo-module">
+        <div class="demo-content">
+            <div class="demo-title">Clock Module</div>
+            <div class="demo-value">14:32</div>
+            <div class="demo-subtitle">Tuesday, June 13</div>
+            <div class="demo-info">Liquid glass effect with backdrop blur and SVG distortion</div>
+        </div>
+    </div>
+
+    <div class="module weather demo-module">
+        <div class="demo-content">
+            <div class="demo-title">Weather Module</div>
+            <div class="demo-value">22°C</div>
+            <div class="demo-subtitle">Partly Cloudy</div>
+            <div class="demo-info">Enhanced glass effect with specular highlights and hover interactions</div>
+        </div>
+    </div>
+
+    <div class="module MMM-MQTT demo-module">
+        <div class="demo-content">
+            <div class="demo-title">MQTT Module</div>
+            <div class="demo-value">68%</div>
+            <div class="demo-subtitle">Humidity</div>
+            <div class="demo-info">Dynamic distortion that responds to mouse movement</div>
+        </div>
+    </div>
+
+    <!-- Controls Panel -->
+    <div class="controls">
+        <h3 style="margin-top: 0;">Liquid Glass Controls</h3>
+        
+        <div class="control-group">
+            <label for="blur-amount">Blur Amount</label>
+            <input type="range" id="blur-amount" min="0" max="20" value="12" step="1">
+            <div class="control-value">12px</div>
+        </div>
+
+        <div class="control-group">
+            <label for="distortion-scale">Distortion Scale</label>
+            <input type="range" id="distortion-scale" min="0" max="100" value="50" step="5">
+            <div class="control-value">50</div>
+        </div>
+
+        <div class="control-group">
+            <label for="glass-opacity">Glass Opacity</label>
+            <input type="range" id="glass-opacity" min="0" max="100" value="15" step="1">
+            <div class="control-value">0.15</div>
+        </div>
+
+        <div class="control-group">
+            <label for="highlight-intensity">Highlight Intensity</label>
+            <input type="range" id="highlight-intensity" min="0" max="100" value="40" step="1">
+            <div class="control-value">0.40</div>
+        </div>
+
+        <div class="control-group">
+            <label>
+                <input type="checkbox" id="mouse-tracking" checked>
+                Mouse Tracking
+            </label>
+        </div>
+
+        <div class="control-group">
+            <label>
+                <input type="checkbox" id="hover-effects" checked>
+                Hover Effects
+            </label>
+        </div>
+
+        <div class="control-group">
+            <label>
+                <input type="checkbox" id="shimmer-animation" checked>
+                Shimmer Animation
+            </label>
+        </div>
+
+        <button onclick="resetDefaults()" style="width: 100%; padding: 8px; margin-top: 10px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer;">
+            Reset to Defaults
+        </button>
+    </div>
+
+    <!-- Info Panel -->
+    <div class="info-panel">
+        <h4 style="margin-top: 0;">Browser Support</h4>
+        <div class="browser-support" id="browser-support">
+            <!-- Will be populated by JavaScript -->
+        </div>
+        <div style="margin-top: 10px; font-size: 11px; color: #aaa;">
+            Move your mouse around to see dynamic distortion effects
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/liquid-glass-config.js"></script>
+    <script src="js/liquid-glass.js"></script>
+    <script>
+        // Demo-specific JavaScript
+        function updateControlValue(id, value, suffix = '') {
+            const control = document.getElementById(id);
+            const valueDisplay = control.nextElementSibling;
+            if (valueDisplay && valueDisplay.classList.contains('control-value')) {
+                valueDisplay.textContent = value + suffix;
+            }
+        }
+
+        function resetDefaults() {
+            document.getElementById('blur-amount').value = 12;
+            document.getElementById('distortion-scale').value = 50;
+            document.getElementById('glass-opacity').value = 15;
+            document.getElementById('highlight-intensity').value = 40;
+            document.getElementById('mouse-tracking').checked = true;
+            document.getElementById('hover-effects').checked = true;
+            document.getElementById('shimmer-animation').checked = true;
+            
+            updateAllControls();
+        }
+
+        function updateAllControls() {
+            const blurAmount = document.getElementById('blur-amount').value;
+            const distortionScale = document.getElementById('distortion-scale').value;
+            const glassOpacity = document.getElementById('glass-opacity').value / 100;
+            const highlightIntensity = document.getElementById('highlight-intensity').value / 100;
+            
+            updateControlValue('blur-amount', blurAmount, 'px');
+            updateControlValue('distortion-scale', distortionScale);
+            updateControlValue('glass-opacity', glassOpacity.toFixed(2));
+            updateControlValue('highlight-intensity', highlightIntensity.toFixed(2));
+            
+            // Update CSS variables
+            document.documentElement.style.setProperty('--lg-bg-color', `rgba(255, 255, 255, ${glassOpacity})`);
+            document.documentElement.style.setProperty('--lg-highlight', `rgba(255, 255, 255, ${highlightIntensity})`);
+
+            // Update backdrop filter directly on modules
+            const modules = document.querySelectorAll('.module.clock, .module.weather, .module.MMM-MQTT, .MMM-Wallpaper .info-container');
+            modules.forEach(module => {
+                const style = document.createElement('style');
+                style.textContent = `
+                    .module.clock::before,
+                    .module.weather::before,
+                    .module.MMM-MQTT::before,
+                    .MMM-Wallpaper .info-container::before {
+                        backdrop-filter: blur(${blurAmount}px) saturate(1.8) !important;
+                        -webkit-backdrop-filter: blur(${blurAmount}px) saturate(1.8) !important;
+                    }
+                `;
+
+                // Remove previous dynamic style
+                const existingStyle = document.getElementById('dynamic-backdrop-style');
+                if (existingStyle) {
+                    existingStyle.remove();
+                }
+
+                style.id = 'dynamic-backdrop-style';
+                document.head.appendChild(style);
+            });
+
+            // Update liquid glass configuration
+            if (window.LiquidGlass) {
+                window.LiquidGlass.updateConfig({
+                    blurAmount: parseInt(blurAmount),
+                    distortionScale: parseInt(distortionScale),
+                    enableMouseTracking: document.getElementById('mouse-tracking').checked,
+                    enableDistortion: parseInt(distortionScale) > 0
+                });
+            }
+        }
+
+        // Bind control events
+        document.addEventListener('DOMContentLoaded', function() {
+            const controls = ['blur-amount', 'distortion-scale', 'glass-opacity', 'highlight-intensity'];
+            controls.forEach(id => {
+                const control = document.getElementById(id);
+                control.addEventListener('input', updateAllControls);
+            });
+
+            const checkboxes = ['mouse-tracking', 'hover-effects', 'shimmer-animation'];
+            checkboxes.forEach(id => {
+                document.getElementById(id).addEventListener('change', updateAllControls);
+            });
+
+            // Initial setup
+            updateAllControls();
+
+            // Debug: Check if backdrop filter is supported
+            console.log('Backdrop filter support:', CSS.supports('backdrop-filter', 'blur(1px)') || CSS.supports('-webkit-backdrop-filter', 'blur(1px)'));
+
+            // Force initial backdrop filter application
+            setTimeout(() => {
+                const modules = document.querySelectorAll('.module');
+                modules.forEach(module => {
+                    const computedStyle = window.getComputedStyle(module, '::before');
+                    console.log('Module backdrop filter:', computedStyle.backdropFilter || computedStyle.webkitBackdropFilter);
+                });
+            }, 1000);
+        });
+
+        // Display browser support information
+        document.addEventListener('liquidGlassReady', function() {
+            if (window.LiquidGlass && window.LiquidGlass.browserSupport) {
+                const support = window.LiquidGlass.browserSupport;
+                const supportPanel = document.getElementById('browser-support');
+                
+                const features = [
+                    { name: 'Backdrop Filter', supported: support.backdropFilter },
+                    { name: 'SVG Filters', supported: support.svgFilters },
+                    { name: 'Transforms', supported: support.transforms },
+                    { name: 'Animations', supported: support.animations }
+                ];
+                
+                supportPanel.innerHTML = features.map(feature => {
+                    const className = feature.supported ? 'support-yes' : 'support-no';
+                    const status = feature.supported ? '✓' : '✗';
+                    return `<div class="support-item"><span>${feature.name}</span><span class="${className}">${status}</span></div>`;
+                }).join('');
+            }
+        });
+    </script>
+</body>
+</html>

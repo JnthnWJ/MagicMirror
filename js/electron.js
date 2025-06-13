@@ -12,10 +12,14 @@ const app = electron.app;
 /*
  * By default, Electron is started with the --disable-gpu flag.
  * To enable GPU acceleration, set the environment variable ELECTRON_ENABLE_GPU=1 on startup.
+ * For liquid glass effects, GPU acceleration is recommended for optimal performance.
  * Refer to https://www.electronjs.org/docs/latest/tutorial/offscreen-rendering for more information.
  */
-if (process.env.ELECTRON_ENABLE_GPU !== "1") {
+if (process.env.ELECTRON_ENABLE_GPU !== "1" && !config.enableGPUAcceleration) {
     app.disableHardwareAcceleration();
+    Log.warn("GPU acceleration disabled. For better liquid glass effects, set ELECTRON_ENABLE_GPU=1 or enableGPUAcceleration: true in config.");
+} else {
+    Log.log("GPU acceleration enabled for enhanced visual effects.");
 }
 
 // Module to create native browser window.
@@ -61,7 +65,15 @@ function createWindow() {
         webPreferences: {
             contextIsolation: true,
             nodeIntegration: false,
-            zoomFactor: config.zoom || 1
+            zoomFactor: config.zoom || 1,
+            // Enhanced rendering options for liquid glass effects
+            experimentalFeatures: true,
+            enableBlinkFeatures: 'CSSBackdropFilter,CSSFilters',
+            webSecurity: true,
+            // Force hardware acceleration for better visual effects
+            hardwareAcceleration: true,
+            // Enable advanced graphics features
+            offscreen: false
         }
     };
 
