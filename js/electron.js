@@ -10,16 +10,29 @@ let config = process.env.config ? JSON.parse(process.env.config) : {};
 const app = electron.app;
 
 /*
- * By default, Electron is started with the --disable-gpu flag.
- * To enable GPU acceleration, set the environment variable ELECTRON_ENABLE_GPU=1 on startup.
- * For liquid glass effects, GPU acceleration is recommended for optimal performance.
+ * GPU Acceleration Management
+ * GPU acceleration is automatically enabled for optimal liquid glass effects.
+ * To disable GPU acceleration, set enableGPUAcceleration: false in config.js
+ * or set environment variable ELECTRON_DISABLE_GPU=1
  * Refer to https://www.electronjs.org/docs/latest/tutorial/offscreen-rendering for more information.
  */
-if (process.env.ELECTRON_ENABLE_GPU !== "1" && !config.enableGPUAcceleration) {
+
+// Check if liquid glass files exist to determine if we should enable GPU acceleration
+const fs = require("fs");
+const path = require("path");
+const hasLiquidGlass = fs.existsSync(path.join(__dirname, "liquid-glass.js")) ||
+                      fs.existsSync(path.join(__dirname, "liquid-glass-config.js"));
+
+// Determine GPU acceleration setting
+const shouldEnableGPU = process.env.ELECTRON_DISABLE_GPU !== "1" &&
+                       config.enableGPUAcceleration !== false &&
+                       (config.enableGPUAcceleration === true || hasLiquidGlass || process.env.ELECTRON_ENABLE_GPU === "1");
+
+if (!shouldEnableGPU) {
     app.disableHardwareAcceleration();
-    Log.warn("GPU acceleration disabled. For better liquid glass effects, set ELECTRON_ENABLE_GPU=1 or enableGPUAcceleration: true in config.");
+    Log.warn("GPU acceleration disabled. For better visual effects, consider enabling GPU acceleration.");
 } else {
-    Log.log("GPU acceleration enabled for enhanced visual effects.");
+    Log.log("GPU acceleration enabled for enhanced visual effects" + (hasLiquidGlass ? " (liquid glass detected)" : "") + ".");
 }
 
 // Module to create native browser window.
