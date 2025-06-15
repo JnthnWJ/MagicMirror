@@ -1,0 +1,36 @@
+[Unit]
+Description=MagicMirror Auto-Startup Service
+Documentation=https://github.com/MagicMirrorOrg/MagicMirror
+After=network-online.target graphical-session.target
+Wants=network-online.target
+Requires=graphical-session.target
+
+[Service]
+Type=forking
+User=jonathanj
+Group=jonathanj
+WorkingDirectory=/home/jonathanj/MagicMirror
+Environment=HOME=/home/jonathanj
+Environment=USER=jonathanj
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/jonathanj/.Xauthority
+Environment=NVM_DIR=/home/jonathanj/.nvm
+Environment=PATH=/home/jonathanj/.nvm/versions/node/v22.16.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/home/jonathanj/MagicMirror/start-magicmirror.sh
+ExecStop=/bin/bash -c 'pkill -f "MagicMirror|electron"'
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:/home/jonathanj/MagicMirror/systemd.log
+StandardError=append:/home/jonathanj/MagicMirror/systemd.log
+TimeoutStartSec=120
+TimeoutStopSec=30
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/jonathanj/MagicMirror
+
+[Install]
+WantedBy=graphical-session.target
