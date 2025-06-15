@@ -39,6 +39,13 @@ Module.register("MMM-Wallpaper", {
     panoramicThreshold: 3.0, // Aspect ratio threshold for panoramic images
     extremeAspectThreshold: 0.3, // Threshold for extremely tall/narrow images
     debugImageCropping: false,
+    // Performance optimization options for low-powered devices
+    lowPowerMode: false, // Enable aggressive optimizations for low-powered devices
+    albumProcessingDelay: 2000, // Delay between processing albums (ms)
+    photoChunkSize: 50, // Number of photos to process in each chunk
+    chunkProcessingDelay: 100, // Delay between processing chunks (ms)
+    maxConcurrentRequests: 1, // Maximum concurrent album requests
+    progressiveLoading: true, // Enable progressive loading of photos
   },
 
   getStyles: function() {
@@ -144,17 +151,44 @@ Module.register("MMM-Wallpaper", {
 
       if (payload.orientation === self.getOrientation() && sourceMatches) {
         if (self.config.debugPhotoSelection) {
-          console.log(`📥 Received ${payload.images.length} images from node_helper`);
+          console.log(`📥 Received ${payload.images.length} images from node_helper${payload.isProgressive ? ' (progressive)' : ''}`);
           console.log(`📊 Using maximumEntries: ${self.config.maximumEntries}`);
         }
 
-        self.images = payload.images.slice(0, self.config.maximumEntries);
+        // Handle progressive loading
+        if (payload.isProgressive) {
+          // This is a progressive update - merge with existing images
+          if (self.images && self.images.length > 0) {
+            // Add new images to existing pool, avoiding duplicates
+            const existingUrls = new Set(self.images.map(img => img.url));
+            const newImages = payload.images.filter(img => !existingUrls.has(img.url));
+            self.images = self.images.concat(newImages);
+
+            if (self.config.debugPhotoSelection) {
+              console.log(`🔄 Progressive update: Added ${newImages.length} new images, total pool: ${self.images.length}`);
+            }
+          } else {
+            // First progressive batch
+            self.images = payload.images.slice(0, self.config.maximumEntries);
+            if (self.config.debugPhotoSelection) {
+              console.log(`🚀 Progressive start: Initial pool of ${self.images.length} images`);
+            }
+          }
+        } else {
+          // Final complete update
+          self.images = payload.images.slice(0, self.config.maximumEntries);
+          if (self.config.debugPhotoSelection) {
+            console.log(`✅ Final update: Complete pool of ${self.images.length} images`);
+          }
+        }
+
         self.imageIndex = self.imageIndex % (self.images.length || 1);
 
         if (self.config.debugPhotoSelection) {
-          console.log(`📋 Final image pool size: ${self.images.length} images`);
+          console.log(`📋 Current image pool size: ${self.images.length} images`);
         }
 
+        // Start displaying images as soon as we have some
         if (self.imageElement === null && self.images.length > 0) {
           self.loadNextImage();
         }
