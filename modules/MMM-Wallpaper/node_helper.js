@@ -247,7 +247,8 @@ module.exports = NodeHelper.create({
       chunkDelay: config.chunkProcessingDelay || 100, // 100ms delay between chunks
       maxConcurrentRequests: config.maxConcurrentRequests || 1, // Process albums sequentially
       progressiveLoading: config.progressiveLoading !== false, // Enable by default
-      lowPowerMode: config.lowPowerMode || false
+      lowPowerMode: config.lowPowerMode || false,
+      photoProgressUpdateFrequency: config.photoProgressUpdateFrequency || 3 // Update every N chunks
     };
 
     // Adjust settings for low power mode
@@ -265,6 +266,11 @@ module.exports = NodeHelper.create({
     self.currentMultiConfig = config;
     self.performanceConfig = performanceConfig;
     self.currentAlbumIndex = 0;
+
+    // Track photo-level progress
+    self.totalPhotosExpected = 0;
+    self.totalPhotosProcessed = 0;
+    self.albumPhotoCount = []; // Track photos per album
 
     // Set a longer timeout for low-powered devices - calculate based on expected processing time
     const estimatedProcessingTime = self.totalAlbums * 60000; // 1 minute per album base time
@@ -549,6 +555,11 @@ module.exports = NodeHelper.create({
     self.currentMultiConfig = null;
     self.performanceConfig = null;
     self.currentAlbumIndex = 0;
+
+    // Clean up photo progress tracking
+    self.totalPhotosExpected = 0;
+    self.totalPhotosProcessed = 0;
+    self.albumPhotoCount = [];
   },
 
   processiCloudDataMulti: function(response, body, config, params) {
@@ -604,6 +615,14 @@ module.exports = NodeHelper.create({
 
         // Store photos for this album instance
         self[`iCloudPhotos_${config.albumIndex}`] = photos;
+
+        // Track photo count for progress calculation
+        self.albumPhotoCount[config.albumIndex] = photos.length;
+        self.totalPhotosExpected = self.albumPhotoCount.reduce((sum, count) => sum + (count || 0), 0);
+
+        if (config.debugAlbumCombining) {
+          console.log(`📊 Photo count tracking: Album ${config.albumIndex + 1} has ${photos.length} photos, total expected: ${self.totalPhotosExpected}`);
+        }
 
         self.requestMultiAlbum(config, {
           method: "POST",
@@ -720,6 +739,23 @@ module.exports = NodeHelper.create({
       // Add processed images to the total
       processedImages = processedImages.concat(chunkImages);
       currentChunk++;
+
+      // Update photo-level progress
+      self.totalPhotosProcessed += chunkImages.length;
+
+      // Send progress update based on configured frequency or when significant progress is made
+      const updateFreq = self.performanceConfig ? self.performanceConfig.photoProgressUpdateFrequency : 3;
+      if (self.totalPhotosExpected > 0 && (currentChunk % updateFreq === 0 || currentChunk >= totalChunks)) {
+        const photoProgress = Math.round((self.totalPhotosProcessed / self.totalPhotosExpected) * 100);
+        const albumProgress = Math.round((currentChunk / totalChunks) * 100);
+
+        console.log(`🔄 [LOADING] Photo progress: ${self.totalPhotosProcessed}/${self.totalPhotosExpected} (${photoProgress}%) - Album ${config.albumIndex + 1} chunk ${currentChunk}/${totalChunks} (${albumProgress}%)`);
+
+        self.sendSocketNotification("LOADING_PROGRESS", {
+          message: `Processing photos: ${self.totalPhotosProcessed} of ${self.totalPhotosExpected}...`,
+          progress: photoProgress
+        });
+      }
 
       // Check if we're done
       if (currentChunk >= totalChunks) {

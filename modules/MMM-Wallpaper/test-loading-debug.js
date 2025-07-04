@@ -62,7 +62,8 @@ const testConfig = {
   albumProcessingDelay: 1000, // Shorter delay for testing
   photoChunkSize: 10,
   chunkProcessingDelay: 50,
-  progressiveLoading: true
+  progressiveLoading: true,
+  photoProgressUpdateFrequency: 2 // Update every 2 chunks for more frequent updates in test
 };
 
 console.log('🧪 Testing Multi-Album Loading with Debug Output');

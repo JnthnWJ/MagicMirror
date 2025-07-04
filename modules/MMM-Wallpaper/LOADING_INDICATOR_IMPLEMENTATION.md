@@ -178,6 +178,48 @@ No additional configuration is required. The loading indicator:
 - Does not affect single-album or non-iCloud sources
 - Maintains backward compatibility with all existing features
 
+## Photo-Level Progress Tracking (Enhanced)
+
+### Overview
+
+The loading indicator now provides granular progress updates as individual photos are processed, not just when albums complete.
+
+### Features
+
+- **Real-time photo counting**: Shows "Processing photos: 1,234 of 5,774..."
+- **Percentage progress**: Updates frequently as photos are processed
+- **Configurable update frequency**: Control how often progress updates are sent
+
+### Configuration Options
+
+```javascript
+{
+  module: "MMM-Wallpaper",
+  config: {
+    // ... other config
+
+    // Photo-level progress settings
+    photoProgressUpdateFrequency: 3, // Update every 3 chunks (default)
+    photoChunkSize: 50, // Process 50 photos per chunk (default)
+    chunkProcessingDelay: 100, // 100ms delay between chunks (default)
+  }
+}
+```
+
+### Progress Flow
+
+1. **Album Discovery**: "Processing album 1 of 3..." (17%)
+2. **Photo Processing**: "Processing photos: 150 of 5,774..." (3%)
+3. **Continued Processing**: "Processing photos: 300 of 5,774..." (5%)
+4. **Album Completion**: "Completed album 1 of 3..." (33%)
+5. **Final Completion**: "Loaded 5,774 photos from 3 albums" (100%)
+
+### Performance Considerations
+
+- **Update Frequency**: Default updates every 3 chunks to balance responsiveness with performance
+- **Chunk Size**: 50 photos per chunk provides good granularity without overwhelming the UI
+- **Configurable**: All timing can be adjusted based on device performance
+
 ## Future Enhancements
 
 Potential improvements could include:
@@ -186,3 +228,4 @@ Potential improvements could include:
 - Different spinner styles or animations
 - Integration with MagicMirror's notification system
 - Loading indicator for other slow operations (EXIF processing, etc.)
+- Album-specific progress bars for parallel processing
