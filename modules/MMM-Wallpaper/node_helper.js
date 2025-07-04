@@ -289,6 +289,12 @@ module.exports = NodeHelper.create({
       console.log(`⚙️  Performance settings:`, performanceConfig);
     }
 
+    // Send loading started notification
+    console.log(`🔄 [LOADING] Sending LOADING_STARTED notification for ${self.totalAlbums} albums`);
+    self.sendSocketNotification("LOADING_STARTED", {
+      message: `Loading photos from ${self.totalAlbums} album${self.totalAlbums > 1 ? 's' : ''}...`
+    });
+
     // Start sequential album processing
     self.processNextAlbumSequentially();
   },
@@ -296,8 +302,11 @@ module.exports = NodeHelper.create({
   processNextAlbumSequentially: function() {
     var self = this;
 
+    console.log(`🔄 [LOADING] processNextAlbumSequentially called - currentAlbumIndex: ${self.currentAlbumIndex}, totalAlbums: ${self.totalAlbums}`);
+
     if (self.currentAlbumIndex >= self.totalAlbums) {
       // All albums processed
+      console.log(`🔄 [LOADING] All albums processed, stopping`);
       return;
     }
 
@@ -310,6 +319,15 @@ module.exports = NodeHelper.create({
     if (config.debugAlbumCombining) {
       console.log(`📂 Processing album ${self.currentAlbumIndex + 1}/${self.totalAlbums}: ${albumSource}`);
     }
+
+    // Send progress notification when starting to process an album
+    // Use a more granular progress calculation: starting = 0.5 steps
+    const startProgressPercent = Math.round(((self.currentAlbumIndex + 0.5) / self.totalAlbums) * 100);
+    console.log(`🔄 [LOADING] Sending LOADING_PROGRESS notification: Starting album ${self.currentAlbumIndex + 1}/${self.totalAlbums} (${startProgressPercent}%)`);
+    self.sendSocketNotification("LOADING_PROGRESS", {
+      message: `Processing album ${self.currentAlbumIndex + 1} of ${self.totalAlbums}...`,
+      progress: startProgressPercent
+    });
 
     const album = albumSource.substring(7).trim();
     const partition = b62decode((album[0] === "A") ? album[1] : album.substring(1, 3));
@@ -419,6 +437,14 @@ module.exports = NodeHelper.create({
       console.log(`✅ Album ${albumIndex + 1} complete: ${images.length} photos (${self.albumsCompleted}/${self.totalAlbums} albums done)`);
     }
 
+    // Send progress notification when an album completes
+    const completionPercent = Math.round((self.albumsCompleted / self.totalAlbums) * 100);
+    console.log(`🔄 [LOADING] Album ${albumIndex + 1} completed - sending progress update: ${self.albumsCompleted}/${self.totalAlbums} (${completionPercent}%)`);
+    self.sendSocketNotification("LOADING_PROGRESS", {
+      message: `Completed album ${albumIndex + 1} of ${self.totalAlbums}...`,
+      progress: completionPercent
+    });
+
     // Progressive loading: send partial results if enabled and we have enough photos
     if (self.performanceConfig && self.performanceConfig.progressiveLoading &&
         self.albumsCompleted === 1 && images.length > 0) {
@@ -444,7 +470,10 @@ module.exports = NodeHelper.create({
       setTimeout(() => {
         // Check if we still have a valid config before proceeding
         if (self.currentMultiConfig) {
+          console.log(`🔄 [LOADING] Delay complete, processing next album...`);
           self.processNextAlbumSequentially();
+        } else {
+          console.log(`⚠️  [LOADING] Config cleared during delay, stopping processing`);
         }
       }, delay);
     }
@@ -506,6 +535,12 @@ module.exports = NodeHelper.create({
 
     // Cache the FULL combined collection (don't apply rotating pools here)
     self.cacheResult(config, allImages);
+
+    // Send loading complete notification
+    console.log(`🔄 [LOADING] Sending LOADING_COMPLETE notification: ${allImages.length} photos from ${self.albumResults.length} albums`);
+    self.sendSocketNotification("LOADING_COMPLETE", {
+      message: `Loaded ${allImages.length} photos from ${self.albumResults.length} albums`
+    });
 
     // Clean up
     self.albumResults = [];

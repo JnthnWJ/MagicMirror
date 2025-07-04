@@ -58,6 +58,9 @@ Module.register("MMM-Wallpaper", {
     self.loadNextImageTimer = null;
     self.imageIndex = -1;
     self.infoString = "";
+    self.isLoading = false;
+    self.loadingProgress = null;
+    self.loadingTimeout = null;
 
     self.wrapper = document.createElement("div");
     self.wrapper.className = "MMM-Wallpaper";
@@ -68,6 +71,9 @@ Module.register("MMM-Wallpaper", {
     self.title = document.createElement("div");
     self.title.className = "title";
     self.content.appendChild(self.title);
+
+    // Create loading indicator
+    self.createLoadingIndicator();
 
     if (self.config.fadeEdges) {
       self.topGradient = document.createElement("div");
@@ -135,6 +141,10 @@ Module.register("MMM-Wallpaper", {
   socketNotificationReceived: function(notification, payload) {
     var self = this;
 
+    // Use Log.log to ensure it appears in MagicMirror logs
+    Log.log(`🔄 [FRONTEND] Received socket notification: ${notification}`, payload ? Object.keys(payload) : 'no payload');
+    console.log(`🔄 [FRONTEND] Received socket notification: ${notification}`, payload ? Object.keys(payload) : 'no payload');
+
     if (notification === "WALLPAPERS") {
       // Check source matching logic
       var sourceMatches = false;
@@ -157,6 +167,7 @@ Module.register("MMM-Wallpaper", {
 
         // Handle progressive loading
         if (payload.isProgressive) {
+          console.log(`🔄 [FRONTEND] Received progressive update, keeping loading indicator visible`);
           // This is a progressive update - merge with existing images
           if (self.images && self.images.length > 0) {
             // Add new images to existing pool, avoiding duplicates
@@ -174,6 +185,7 @@ Module.register("MMM-Wallpaper", {
               console.log(`🚀 Progressive start: Initial pool of ${self.images.length} images`);
             }
           }
+          // Don't hide loading indicator for progressive updates - wait for LOADING_COMPLETE
         } else {
           // Final complete update
           self.images = payload.images.slice(0, self.config.maximumEntries);
@@ -190,12 +202,31 @@ Module.register("MMM-Wallpaper", {
 
         // Start displaying images as soon as we have some
         if (self.imageElement === null && self.images.length > 0) {
+          // Only hide loading indicator if this is not a progressive update
+          if (!payload.isProgressive) {
+            console.log(`🔄 [FRONTEND] Final update received, hiding loading indicator`);
+            self.hideLoadingIndicator();
+          } else {
+            console.log(`🔄 [FRONTEND] Progressive update - starting image display but keeping loading indicator`);
+          }
           self.loadNextImage();
         }
       }
     } else if (notification === "NEW_INFO_STRING") {
         self.infoString = payload;
         self.updateDom(); // Update the DOM to display the new info string
+    } else if (notification === "LOADING_STARTED") {
+        Log.log(`🔄 [FRONTEND] Received LOADING_STARTED:`, payload);
+        console.log(`🔄 [FRONTEND] Received LOADING_STARTED:`, payload);
+        self.showLoadingIndicator(payload.message || "Loading photos...");
+    } else if (notification === "LOADING_PROGRESS") {
+        Log.log(`🔄 [FRONTEND] Received LOADING_PROGRESS:`, payload);
+        console.log(`🔄 [FRONTEND] Received LOADING_PROGRESS:`, payload);
+        self.updateLoadingProgress(payload.message, payload.progress);
+    } else if (notification === "LOADING_COMPLETE") {
+        Log.log(`🔄 [FRONTEND] Received LOADING_COMPLETE:`, payload);
+        console.log(`🔄 [FRONTEND] Received LOADING_COMPLETE:`, payload);
+        self.hideLoadingIndicator();
     }
   },
 
@@ -204,6 +235,16 @@ Module.register("MMM-Wallpaper", {
     var config = Object.assign({}, self.config);
 
     config.orientation = self.getOrientation();
+
+    // Show loading indicator for multi-album configurations
+    if (Array.isArray(config.source) && config.source.length > 1 &&
+        config.source.every(src => typeof src === 'string' && src.toLowerCase().startsWith("icloud:"))) {
+      console.log(`🔄 [FRONTEND] Multi-album config detected, showing loading indicator`);
+      self.showLoadingIndicator("Loading photos from albums...");
+    } else {
+      console.log(`🔄 [FRONTEND] Single album or non-iCloud config, no loading indicator needed`);
+    }
+
     self.sendSocketNotification("FETCH_WALLPAPERS", config);
   },
 
@@ -319,6 +360,113 @@ Module.register("MMM-Wallpaper", {
     }
 
     return self.wrapper;
+  },
+
+  createLoadingIndicator: function() {
+    var self = this;
+
+    // Create loading container
+    self.loadingContainer = document.createElement("div");
+    self.loadingContainer.className = "loading-container";
+    self.loadingContainer.style.display = "none";
+
+    // Create spinner
+    self.loadingSpinner = document.createElement("div");
+    self.loadingSpinner.className = "loading-spinner";
+
+    // Create loading text
+    self.loadingText = document.createElement("div");
+    self.loadingText.className = "loading-text";
+    self.loadingText.textContent = "Loading photos...";
+
+    // Create progress text (optional)
+    self.loadingProgress = document.createElement("div");
+    self.loadingProgress.className = "loading-progress";
+
+    // Assemble loading indicator
+    self.loadingContainer.appendChild(self.loadingSpinner);
+    self.loadingContainer.appendChild(self.loadingText);
+    self.loadingContainer.appendChild(self.loadingProgress);
+
+    // Add to content
+    self.content.appendChild(self.loadingContainer);
+  },
+
+  showLoadingIndicator: function(message) {
+    var self = this;
+
+    if (self.loadingContainer) {
+      self.isLoading = true;
+      self.loadingText.textContent = message || "Loading photos...";
+      self.loadingProgress.textContent = "";
+      self.loadingContainer.style.display = "flex";
+
+      // Set a safety timeout to hide the loading indicator if it's been showing too long
+      if (self.loadingTimeout) {
+        clearTimeout(self.loadingTimeout);
+      }
+      self.loadingTimeout = setTimeout(() => {
+        if (self.isLoading) {
+          console.warn("Loading indicator timeout - hiding after 5 minutes");
+          self.hideLoadingIndicator();
+        }
+      }, 300000); // 5 minutes
+
+      Log.log(`🔄 [FRONTEND] Loading indicator shown: ${message}`);
+      if (self.config.debugPhotoSelection) {
+        console.log(`🔄 Loading indicator shown: ${message}`);
+      }
+    }
+  },
+
+  updateLoadingProgress: function(message, progress) {
+    var self = this;
+
+    console.log(`🔄 [FRONTEND] updateLoadingProgress called with message: "${message}", progress: ${progress}, isLoading: ${self.isLoading}`);
+
+    if (self.loadingContainer && self.isLoading) {
+      if (message) {
+        console.log(`🔄 [FRONTEND] Updating loading text to: "${message}"`);
+        self.loadingText.textContent = message;
+      }
+
+      if (progress !== undefined && progress !== null) {
+        if (typeof progress === 'number') {
+          const progressText = `${Math.round(progress)}%`;
+          console.log(`🔄 [FRONTEND] Updating progress to: "${progressText}"`);
+          self.loadingProgress.textContent = progressText;
+        } else {
+          console.log(`🔄 [FRONTEND] Updating progress to: "${progress}"`);
+          self.loadingProgress.textContent = progress;
+        }
+      }
+
+      if (self.config.debugPhotoSelection) {
+        console.log(`📊 Loading progress updated: ${message} ${progress || ''}`);
+      }
+    } else {
+      console.log(`⚠️ [FRONTEND] Cannot update progress - loadingContainer: ${!!self.loadingContainer}, isLoading: ${self.isLoading}`);
+    }
+  },
+
+  hideLoadingIndicator: function() {
+    var self = this;
+
+    if (self.loadingContainer && self.isLoading) {
+      self.isLoading = false;
+      self.loadingContainer.style.display = "none";
+
+      // Clear the safety timeout
+      if (self.loadingTimeout) {
+        clearTimeout(self.loadingTimeout);
+        self.loadingTimeout = null;
+      }
+
+      Log.log(`🔄 [FRONTEND] Loading indicator hidden`);
+      if (self.config.debugPhotoSelection) {
+        console.log(`✅ Loading indicator hidden`);
+      }
+    }
   },
 
   getViewport: function() {
