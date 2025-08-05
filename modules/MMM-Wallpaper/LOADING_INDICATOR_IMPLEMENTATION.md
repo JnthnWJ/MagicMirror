@@ -4,6 +4,8 @@
 
 A visual loading indicator has been added to the MMM-Wallpaper module to provide user feedback during the batch loading process when processing multiple iCloud albums. This addresses the issue where users experienced long startup times without any visual indication that the system was working.
 
+**Important**: The loading indicator now only appears during the very first startup/initialization of the module. Subsequent photo loading operations (when the server fetches additional photos from albums) will not show the loading indicator, preventing interruption of the user's viewing experience while maintaining helpful feedback during initial module setup.
+
 ## Features Implemented
 
 ### 1. Visual Loading Indicator
@@ -15,9 +17,11 @@ A visual loading indicator has been added to the MMM-Wallpaper module to provide
 
 ### 2. Smart Display Logic
 
-- **Automatic Detection**: Only shows for multi-album iCloud configurations
-- **Progressive Updates**: Updates progress as albums are processed
+- **First Initialization Only**: Only shows during the very first startup/initialization of the module
+- **Automatic Detection**: Only shows for multi-album iCloud configurations during first initialization
+- **Progressive Updates**: Updates progress as albums are processed during initial loading
 - **Intelligent Hiding**: Disappears when first photo is ready to display
+- **No Subsequent Interruptions**: Does not appear during subsequent photo loading operations
 - **Safety Timeout**: Automatically hides after 5 minutes if something goes wrong
 
 ### 3. Socket Notification System
@@ -36,6 +40,7 @@ A visual loading indicator has been added to the MMM-Wallpaper module to provide
 self.isLoading = false;
 self.loadingProgress = null;
 self.loadingTimeout = null;
+self.isFirstInitialization = true; // Track if this is the first startup
 ```
 
 #### New Methods
@@ -53,9 +58,37 @@ self.loadingTimeout = null;
 #### Smart Detection in getData()
 
 ```javascript
-// Show loading indicator for multi-album configurations
-if (Array.isArray(config.source) && config.source.length > 1 && config.source.every((src) => typeof src === "string" && src.toLowerCase().startsWith("icloud:"))) {
+// Show loading indicator only during first initialization for multi-album configurations
+if (self.isFirstInitialization && Array.isArray(config.source) && config.source.length > 1 && config.source.every((src) => typeof src === "string" && src.toLowerCase().startsWith("icloud:"))) {
   self.showLoadingIndicator("Loading photos from albums...");
+}
+```
+
+#### First Initialization Tracking
+
+The module now tracks whether it's the first initialization to prevent loading indicators from appearing during subsequent photo loading operations:
+
+```javascript
+// Mark first initialization as complete when loading finishes
+} else if (notification === "LOADING_COMPLETE") {
+    self.hideLoadingIndicator();
+    // Mark first initialization as complete
+    self.isFirstInitialization = false;
+}
+
+// Also mark complete for non-progressive updates
+} else {
+    // Final complete update
+    self.images = payload.images.slice(0, self.config.maximumEntries);
+    // Mark first initialization as complete for non-progressive updates
+    self.isFirstInitialization = false;
+}
+
+// Reset to first initialization on config updates
+} else if (notification === "UPDATE_WALLPAPER_CONFIG") {
+    // Treat config updates as first initialization to show loading indicator
+    self.isFirstInitialization = true;
+    // ... rest of config update logic
 }
 ```
 

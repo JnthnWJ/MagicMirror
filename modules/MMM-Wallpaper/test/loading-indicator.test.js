@@ -1,6 +1,7 @@
 /**
  * Test for the loading indicator functionality
  * This simulates the loading indicator behavior during multi-album batch processing
+ * and verifies that loading indicators only appear during first initialization
  */
 
 const path = require('path');
@@ -46,6 +47,14 @@ global.window = {
 
 // Keep console.log for test output
 const originalConsoleLog = console.log;
+
+// Mock MagicMirror Log
+global.Log = {
+  log: function() {},
+  info: function() {},
+  warn: function() {},
+  error: function() {}
+};
 
 // Mock MagicMirror Module
 let moduleDefinition = null;
@@ -217,15 +226,36 @@ function testGetDataIntegration() {
   };
 
   module.start();
-  
-  // Test getData with multi-album config
+
+  // Test 1: First initialization should show loading indicator
+  console.log('\n🔍 Test 1: First initialization with multi-album config');
   module.getData();
-  
-  if (module.isLoading && notificationSent) {
-    console.log('✅ getData correctly shows loading indicator for multi-album config');
+
+  if (module.isLoading && notificationSent && module.isFirstInitialization) {
+    console.log('✅ getData correctly shows loading indicator on first initialization');
+  } else {
+    console.log('❌ getData should show loading indicator on first initialization');
+    return false;
+  }
+
+  // Test 2: Simulate LOADING_COMPLETE and test subsequent calls
+  console.log('\n🔍 Test 2: Subsequent calls after LOADING_COMPLETE');
+  module.socketNotificationReceived("LOADING_COMPLETE", {
+    message: "Loaded 1000 photos from 2 albums"
+  });
+
+  // Reset state for next test
+  module.isLoading = false;
+  notificationSent = false;
+
+  // Call getData again - should NOT show loading indicator
+  module.getData();
+
+  if (!module.isLoading && notificationSent && !module.isFirstInitialization) {
+    console.log('✅ getData correctly does NOT show loading indicator on subsequent calls');
     return true;
   } else {
-    console.log('❌ getData integration not working properly');
+    console.log('❌ getData should NOT show loading indicator on subsequent calls');
     return false;
   }
 }

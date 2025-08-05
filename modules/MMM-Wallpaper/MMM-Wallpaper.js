@@ -61,6 +61,7 @@ Module.register("MMM-Wallpaper", {
     self.isLoading = false;
     self.loadingProgress = null;
     self.loadingTimeout = null;
+    self.isFirstInitialization = true; // Track if this is the first startup
 
     self.wrapper = document.createElement("div");
     self.wrapper.className = "MMM-Wallpaper";
@@ -132,6 +133,8 @@ Module.register("MMM-Wallpaper", {
         Object.assign(self.config, payload);
       }
 
+      // Treat config updates as first initialization to show loading indicator
+      self.isFirstInitialization = true;
       clearInterval(self.updateTimer);
       self.getData();
       self.updateTimer = setInterval(() => self.getData(), self.config.updateInterval);
@@ -192,6 +195,8 @@ Module.register("MMM-Wallpaper", {
           if (self.config.debugPhotoSelection) {
             console.log(`✅ Final update: Complete pool of ${self.images.length} images`);
           }
+          // Mark first initialization as complete for non-progressive updates
+          self.isFirstInitialization = false;
         }
 
         self.imageIndex = self.imageIndex % (self.images.length || 1);
@@ -227,6 +232,8 @@ Module.register("MMM-Wallpaper", {
         Log.log(`🔄 [FRONTEND] Received LOADING_COMPLETE:`, payload);
         console.log(`🔄 [FRONTEND] Received LOADING_COMPLETE:`, payload);
         self.hideLoadingIndicator();
+        // Mark first initialization as complete
+        self.isFirstInitialization = false;
     }
   },
 
@@ -236,13 +243,15 @@ Module.register("MMM-Wallpaper", {
 
     config.orientation = self.getOrientation();
 
-    // Show loading indicator for multi-album configurations
-    if (Array.isArray(config.source) && config.source.length > 1 &&
+    // Show loading indicator only during first initialization for multi-album configurations
+    if (self.isFirstInitialization && Array.isArray(config.source) && config.source.length > 1 &&
         config.source.every(src => typeof src === 'string' && src.toLowerCase().startsWith("icloud:"))) {
-      console.log(`🔄 [FRONTEND] Multi-album config detected, showing loading indicator`);
+      console.log(`🔄 [FRONTEND] First initialization with multi-album config detected, showing loading indicator`);
       self.showLoadingIndicator("Loading photos from albums...");
+    } else if (self.isFirstInitialization) {
+      console.log(`🔄 [FRONTEND] First initialization with single album or non-iCloud config, no loading indicator needed`);
     } else {
-      console.log(`🔄 [FRONTEND] Single album or non-iCloud config, no loading indicator needed`);
+      console.log(`🔄 [FRONTEND] Subsequent update - no loading indicator needed`);
     }
 
     self.sendSocketNotification("FETCH_WALLPAPERS", config);

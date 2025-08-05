@@ -1,0 +1,49 @@
+{
+  "name": "@specy/liquid-glass",
+  "version": "1.12.1",
+  "description": "A Three.js powered library to make apple's liquid with glass effect",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "three.js",
+    "glass-effect",
+    "morphing",
+    "animation",
+    "webgl",
+    "ui-component",
+    "liquid-glass"
+  ],
+  "author": "Specy",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Specy/liquid-glass.git"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "tsup",
+    "build:watch": "tsup --watch"
+  },
+  "devDependencies": {
+    "@types/three": "^0.177.0",
+    "html2canvas-pro": "^1.5.11",
+    "three": "^0.177.0",
+    "tsup": "^8.5.0",
+    "typescript": "~5.8.3",
+    "html2canvas": "^1.4.1"
+  },
+  "dependencies": {
+  }
+}
