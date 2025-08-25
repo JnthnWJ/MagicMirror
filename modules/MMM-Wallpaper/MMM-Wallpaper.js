@@ -223,15 +223,30 @@ Module.register("MMM-Wallpaper", {
     } else if (notification === "LOADING_STARTED") {
         Log.log(`🔄 [FRONTEND] Received LOADING_STARTED:`, payload);
         console.log(`🔄 [FRONTEND] Received LOADING_STARTED:`, payload);
-        self.showLoadingIndicator(payload.message || "Loading photos...");
+        // Show the loading indicator only during the very first initialization
+        if (self.isFirstInitialization) {
+          self.showLoadingIndicator(payload.message || "Loading photos...");
+        } else {
+          console.log("ℹ️ [FRONTEND] Ignoring LOADING_STARTED after initial startup");
+        }
     } else if (notification === "LOADING_PROGRESS") {
         Log.log(`🔄 [FRONTEND] Received LOADING_PROGRESS:`, payload);
         console.log(`🔄 [FRONTEND] Received LOADING_PROGRESS:`, payload);
-        self.updateLoadingProgress(payload.message, payload.progress);
+        // Preserve fine-grained progress only for the first initialization
+        if (self.isFirstInitialization && self.isLoading) {
+          self.updateLoadingProgress(payload.message, payload.progress);
+        } else {
+          // Ignore progress updates after initial startup to avoid overlaying current photo
+          if (self.config.debugPhotoSelection) {
+            console.log("ℹ️ [FRONTEND] Ignoring LOADING_PROGRESS after initial startup");
+          }
+        }
     } else if (notification === "LOADING_COMPLETE") {
         Log.log(`🔄 [FRONTEND] Received LOADING_COMPLETE:`, payload);
         console.log(`🔄 [FRONTEND] Received LOADING_COMPLETE:`, payload);
-        self.hideLoadingIndicator();
+        if (self.isLoading) {
+          self.hideLoadingIndicator();
+        }
         // Mark first initialization as complete
         self.isFirstInitialization = false;
     }
